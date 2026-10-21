@@ -6,7 +6,6 @@ Discord のメッセージをタスクトレイから確認できる Windows 用
 
 ![スクリーンショット](docs/screenshot.png)
 
-
 ## 機能
 
 ### トレイ（タブ）で新着を仕分け
