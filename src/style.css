@@ -85,8 +85,9 @@
   dialog td { padding:4px 0; text-align:center; border-top:1px solid var(--line); }
   dialog .foot { display:flex; justify-content:space-between; margin-top:16px; }
   dialog .ghost { background:#4e5058; }
-  dialog select, dialog input[type=number] { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:2px 4px; font:inherit; font-size:12px; }
+  dialog select, dialog input[type=number], #clientId { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:2px 4px; font:inherit; font-size:12px; }
   dialog .sub { margin-left:22px; }
   dialog .note { margin:6px 0 0; font-size:12px; color:var(--dim); }
   dialog input[type=number] { width:5em; }
+  #clientId { width:14em; }
   dialog table + label { display:block; margin-top:10px; }

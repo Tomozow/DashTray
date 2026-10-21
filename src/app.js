@@ -402,6 +402,7 @@ function renderSettings() {
   document.getElementById('soundCooldown').value = v.settings.soundCooldown;
   document.getElementById('alwaysOnTop').checked = v.settings.alwaysOnTop;
   document.getElementById('trayBadge').checked = v.settings.trayBadge;
+  document.getElementById('clientId').value = v.settings.clientId;
   document.getElementById('toastHead').hidden = v.portable;
   document.getElementById('notifyRows').replaceChildren(...usable().map((t) => {
     const tr = el('tr');
@@ -438,6 +439,7 @@ document.getElementById('startMinimized').onchange = (e) => api.setSettings({ st
 document.getElementById('trayBadge').onchange = (e) => api.setSettings({ trayBadge: e.target.checked });
 document.getElementById('alwaysOnTop').onchange = (e) => api.setSettings({ alwaysOnTop: e.target.checked });
 document.getElementById('soundCooldown').onchange = (e) => api.setSettings({ soundCooldown: Math.max(0, Math.floor(+e.target.value) || 0) });
+document.getElementById('applyClientId').onclick = () => api.setClientId(document.getElementById('clientId').value).catch(alert);
 document.getElementById('testNotify').onclick = () => api.testNotify();
 
 // 通知音（音声ファイルを使わず WebAudio で鳴らす）。notes: [周波数Hz, 開始秒, 長さ秒]

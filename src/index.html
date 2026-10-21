@@ -37,6 +37,10 @@
   </table>
   <label><input type="checkbox" id="trayBadge"> 未読バッジをタスクトレイのアイコンにも出す（赤い点）</label><br>
   <label>同じチャンネルの通知音を <input type="number" id="soundCooldown" min="0" step="1"> 秒間は鳴らさない（0 で毎回鳴らす）</label>
+  <h3>Discord 連携</h3>
+  <label>Client ID <input id="clientId" placeholder="空欄なら共有の ID" inputmode="numeric"></label>
+  <button id="applyClientId" class="ghost">適用</button>
+  <p class="note">テスター登録をしていない人は、自分で作った Discord アプリの ID を入れます（導入手順を参照）。<br>変えると Discord で許可し直します。</p>
   <div class="foot">
     <button id="testNotify" class="ghost">通知をテスト</button>
     <button id="closeSettings">閉じる</button>

@@ -19,6 +19,7 @@ window.api = {
   addDm: (id) => invoke('add_dm', { id }),
   open: (id) => invoke('open', { id }),
   setSettings: (patch) => invoke('set_settings', { patch }),
+  setClientId: (id) => invoke('set_client_id', { id }),
   setTrayNotify: (id, patch) => invoke('set_tray_notify', { id, patch }),
   setAutostart: (on) => invoke('set_autostart', { on }),
   testNotify: () => invoke('test_notify'),

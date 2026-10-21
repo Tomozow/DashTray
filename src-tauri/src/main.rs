@@ -22,6 +22,7 @@ const CATCH_UP_GAP_MS: u64 = 200; // 起動時の取り込みで GET_CHANNEL を
 const MAX_FRAME: usize = 16 << 20; // RPC で受け取る 1 フレームの上限（壊れた長さで巨大なメモリを確保しない）
 
 // Public Client + PKCE なので Client Secret は持たない（Developer Portal で Public Client を ON にしておく）
+// 共有の Client ID。RPC はテスター登録した人しか認可できないので、各自のアプリの ID を設定でも指定できる
 const CLIENT_ID: &str = "1559561513273135277";
 const REDIRECT_URI: &str = "http://localhost";
 
@@ -151,10 +152,11 @@ struct Settings {
     sound_cooldown: u64,   // 同じチャンネルの通知音を鳴らさない秒数（0 で無効）
     always_on_top: bool,
     tray_badge: bool, // タスクトレイのアイコンにも未読の赤い点を出す（どのトレイを数えるかは Notify.badge）
+    client_id: String, // 自分で作った Developer Portal アプリの ID。空なら共有の CLIENT_ID
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true }
+        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true, client_id: String::new() }
     }
 }
 
@@ -199,6 +201,7 @@ struct Core {
     data: Mutex<Data>,
     writer: tokio::sync::Mutex<Option<WriteHalf<NamedPipeClient>>>,
     pending: Mutex<Pending>,
+    reconnect: tokio::sync::Notify, // Client ID を変えたとき、今の接続を切ってやり直す
 }
 
 fn s(v: &Value) -> String {
@@ -430,6 +433,11 @@ impl Core {
         self.update();
     }
 
+    fn client_id(&self) -> String {
+        let id = self.lock().saved.settings.client_id.clone();
+        if id.is_empty() { CLIENT_ID.into() } else { id }
+    }
+
     fn me_id(&self) -> Option<String> {
         self.lock().me.as_ref().map(|m| s(&m["id"]))
     }
@@ -509,8 +517,11 @@ impl Core {
             self.log("Discord に接続");
             let (r, w) = tokio::io::split(pipe);
             *self.writer.lock().await = Some(w);
-            let reason = match self.send(0, &json!({ "v": 1, "client_id": CLIENT_ID })).await {
-                Ok(()) => self.read_loop(r).await,
+            let reason = match self.send(0, &json!({ "v": 1, "client_id": self.client_id() })).await {
+                Ok(()) => tokio::select! {
+                    r = self.read_loop(r) => r,
+                    _ = self.reconnect.notified() => Some("Client ID を変更 — 再接続".into()),
+                },
                 Err(e) => Some(e),
             };
             *self.writer.lock().await = None;
@@ -526,7 +537,8 @@ impl Core {
     }
 
     async fn fetch_token(&self, params: &[(&str, &str)]) -> Result<(), String> {
-        let mut form = vec![("client_id", CLIENT_ID)];
+        let id = self.client_id();
+        let mut form = vec![("client_id", id.as_str())];
         form.extend_from_slice(params);
         let r = reqwest::Client::new()
             .post("https://discord.com/api/oauth2/token")
@@ -565,7 +577,7 @@ impl Core {
         self.set_status("Discord の画面で許可してください");
         // PKCE: verifier は uuid v4 ×2（約 244 ビットの乱数）、challenge はその SHA-256 を base64url
         let verifier = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-        let args = json!({ "client_id": CLIENT_ID, "scopes": SCOPES, "code_challenge": pkce_challenge(&verifier), "code_challenge_method": "S256" });
+        let args = json!({ "client_id": self.client_id(), "scopes": SCOPES, "code_challenge": pkce_challenge(&verifier), "code_challenge_method": "S256" });
         let r = self.cmd("AUTHORIZE", args, None).await?;
         let code = s(&r["code"]);
         self.fetch_token(&[("grant_type", "authorization_code"), ("code", &code), ("redirect_uri", REDIRECT_URI), ("code_verifier", &verifier)])
@@ -1084,6 +1096,24 @@ fn set_settings(c: S, patch: Value) {
     resync(&c);
 }
 
+// 空なら共有の ID に戻す。トークンは元の ID のアプリのものなので捨て、Discord で許可し直す
+#[tauri::command]
+fn set_client_id(c: S, id: String) -> Result<(), String> {
+    let id = id.trim().to_string();
+    if !id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("Client ID は数字だけです".into());
+    }
+    {
+        let mut d = c.lock();
+        d.saved.settings.client_id = id; // 同じ ID でも、Portal の設定を直した後のやり直しに使えるよう接続し直す
+        d.saved.token = None;
+        c.save(&d);
+    }
+    c.reconnect.notify_waiters();
+    c.update();
+    Ok(())
+}
+
 #[tauri::command]
 fn set_tray_notify(c: S, id: String, patch: Value) {
     {
@@ -1346,6 +1376,7 @@ fn main() {
                 data: Mutex::new(Data { saved, status: "接続待ち".into(), autostart: { migrate_run_key(); autostart_enabled() }, ..Default::default() }),
                 writer: Default::default(),
                 pending: Default::default(),
+                reconnect: Default::default(),
             });
             app.manage(core.clone());
 
@@ -1389,7 +1420,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            get, load_channels, set_fav, refresh, add_dm, mark_read, mark_read_in, remove_dm, open_url, mark_all_read, set_settings, set_tray_notify,
+            get, load_channels, set_fav, refresh, add_dm, mark_read, mark_read_in, remove_dm, open_url, mark_all_read, set_settings, set_client_id, set_tray_notify,
             set_autostart, test_notify, add_tray, duplicate_tray, reorder_trays, rename_tray, delete_tray, open
         ])
         .run(tauri::generate_context!())
