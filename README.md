@@ -6,7 +6,6 @@ Discord のメッセージをタスクトレイから確認できる Windows 用
 
 ![スクリーンショット](docs/screenshot.png)
 
-※ 画像はダミーデータです。
 
 ## ビルド
 
