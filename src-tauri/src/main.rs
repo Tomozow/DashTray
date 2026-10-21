@@ -36,6 +36,53 @@ fn pkce_challenge_rfc7636() {
     assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
 }
 
+// トークンは Windows の DPAPI（今のユーザー用）で暗号化して "dpapi:<base64>" で保存する。
+// 別のユーザーや別の PC では復号できず、トークンなしとして読む（再認可になる）
+fn dpapi(data: &[u8], protect: bool) -> Option<Vec<u8>> {
+    use windows_sys::Win32::{Foundation::LocalFree, Security::Cryptography::*};
+    let input = CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 };
+    let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+    let ok = unsafe {
+        if protect {
+            CryptProtectData(&input, std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out)
+        } else {
+            CryptUnprotectData(&input, std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out)
+        }
+    };
+    if ok == 0 {
+        return None;
+    }
+    let v = unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize) }.to_vec();
+    unsafe { LocalFree(out.pbData as _) };
+    Some(v)
+}
+
+mod dpapi_token {
+    use base64::Engine as _;
+    use serde::{Deserialize, Deserializer, Serializer};
+    use serde_json::Value;
+    const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
+
+    pub fn serialize<S: Serializer>(t: &Option<Value>, s: S) -> Result<S::Ok, S::Error> {
+        match t.as_ref().and_then(|t| super::dpapi(t.to_string().as_bytes(), true)) {
+            Some(enc) => s.serialize_str(&format!("dpapi:{}", B64.encode(enc))),
+            None => s.serialize_none(), // 暗号化できなければ平文では残さない
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+        Ok(match Option::<Value>::deserialize(d)? {
+            // 旧版の平文トークンはそのまま読む（次の保存で暗号化される）
+            Some(Value::String(s)) => s
+                .strip_prefix("dpapi:")
+                .and_then(|b| B64.decode(b).ok())
+                .and_then(|enc| super::dpapi(&enc, false))
+                .and_then(|plain| serde_json::from_slice(&plain).ok()),
+            t => t,
+        })
+    }
+}
+
 // ---- 保存データ（state.json。Electron 版と同じ形式） ----
 #[derive(Serialize, Deserialize, Clone)]
 struct Fav {
@@ -113,6 +160,7 @@ impl Default for Settings {
 
 #[derive(Serialize, Deserialize, Default)]
 struct Saved {
+    #[serde(default, with = "dpapi_token")]
     token: Option<Value>,
     #[serde(default)]
     trays: Vec<TrayDef>,
@@ -1384,6 +1432,20 @@ mod tests {
             assert!(!pipe_is_discord(&client));
         });
         assert!(!is_discord(std::process::id()));
+    }
+
+    #[test]
+    fn token_encrypted_on_disk() {
+        let tok = json!({ "access_token": "secret-at", "refresh_token": "secret-rt" });
+        let text = serde_json::to_string(&Saved { token: Some(tok.clone()), ..Default::default() }).unwrap();
+        assert!(!text.contains("secret") && text.contains("\"token\":\"dpapi:"));
+        assert_eq!(serde_json::from_str::<Saved>(&text).unwrap().token, Some(tok.clone()));
+        // 旧版の平文、壊れた値、トークンなし
+        let plain = format!(r#"{{"token":{tok}}}"#);
+        assert_eq!(serde_json::from_str::<Saved>(&plain).unwrap().token, Some(tok));
+        assert_eq!(serde_json::from_str::<Saved>(r#"{"token":"dpapi:AAAA"}"#).unwrap().token, None);
+        assert_eq!(serde_json::from_str::<Saved>(r#"{"token":null}"#).unwrap().token, None);
+        assert_eq!(serde_json::from_str::<Saved>("{}").unwrap().token, None);
     }
 
     #[test]

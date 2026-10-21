@@ -1,6 +1,6 @@
 [package]
 name = "discordmailer"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 
 [build-dependencies]
@@ -18,7 +18,7 @@ indexmap = { version = "2", features = ["serde"] }
 tokio = { version = "1", features = ["net", "io-util", "time", "sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 uuid = { version = "1", features = ["v4"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 sha2 = "0.10"
 base64 = "0.22"
 

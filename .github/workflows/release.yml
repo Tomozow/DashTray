@@ -1,0 +1,48 @@
+# v* のタグを push すると、ソースからビルドして証明（attestation）と SHA-256 付きで Release を作る
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run build:portable
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/DashTray.exe
+            dist/DashTray.zip
+      - name: Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $hash = { param($f) (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() }
+          $notes = @"
+          DashTray.zip を展開して DashTray.exe を実行してください（Windows 用ポータブル版）。
+
+          このファイルは GitHub Actions でソースからビルドしたものです。確かめ方は README の「配布物を確かめる」を参照してください。
+
+          SHA-256
+          - DashTray.zip: $(& $hash dist/DashTray.zip)
+          - DashTray.exe: $(& $hash dist/DashTray.exe)
+          "@
+          gh release create $env:GITHUB_REF_NAME dist/DashTray.zip --title $env:GITHUB_REF_NAME --notes $notes
