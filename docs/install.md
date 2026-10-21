@@ -33,7 +33,7 @@ zip を右クリック →「すべて展開」し、出てきた `DashTray.exe`
 
 ## 4. Discord で連携を許可する
 
-**先に Client ID を設定します：** DashTray の ⚙（設定）→「Discord 連携」の **Client ID** に、自分のアプリの Client ID を貼り付けて「適用」を押してください。起動直後に Discord で `invalid_scope` のエラーが出ていても、適用すればやり直します（テスター登録の人は空欄のまま）。
+**先に Client ID を設定します：** 「[自分の Discord アプリを作る](#自分の-discord-アプリを作る)」の 8 のとおり、DashTray の ⚙（設定）→「Discord 連携」の **Client ID** に、自分のアプリの Client ID を貼り付けて「適用」を押してください。起動直後に Discord で `invalid_scope` のエラーが出ていても、適用すればやり直します（テスター登録の人は空欄のまま）。
 
 初回は Discord の画面に DashTray の許可を求める画面が出ます。内容を確認して「認証」を押してください。
 
@@ -43,19 +43,41 @@ DashTray のウィンドウ下部の表示が「接続中 (ユーザー名)」�
 
 ## 自分の Discord アプリを作る
 
-Discord アカウントがあれば無料で作れます。
+Discord アカウントがあれば無料で作れます。画面は日本語表示のものです。
 
-1. https://discord.com/developers/applications を開き、普段の Discord アカウントでログインする
-2. 「New Application（新しいアプリケーション）」を押し、名前（例: `DashTray`。何でも可）を入れて利用規約に同意し、「作成」を押す
-3. 左メニューの「OAuth2」を開く
-4. 「Redirects（リダイレクト）」の「Add Redirect」を押し、`http://localhost` を入れる
-5. 「Public Client（公開クライアント）」を ON にする
-6. 画面下に出る「Save Changes（変更を保存）」を押す（**忘れやすいので注意**）
-7. 同じ画面の「Client ID（クライアント ID）」の「Copy」を押す
+**1.** https://discord.com/developers/applications を開き、普段の Discord アカウントでログインして「**新しいアプリケーション**」を押します。
 
-コピーした ID を、上の「4. Discord で連携を許可する」のとおり DashTray の設定に貼り付けます。
+<img src="setup-1-new-app.png" alt="新しいアプリケーションのボタン" width="560">
 
-- Client ID は秘密の情報ではありません。Client Secret（クライアントシークレット）は使わないので、リセットやコピーは不要です
+**2.** 「名前」に好きな名前（例: `DashTray`）を入れ、利用規約のチェックを付けて「**作成**」を押します。
+
+<img src="setup-2-name.png" alt="アプリを新規作成する画面" width="400">
+
+**3.** 作ったアプリの画面で、左のメニューの「**OAuth2**」を開きます（ウィンドウが狭いときは左上の ☰ の中にあります）。
+
+<img src="setup-3-oauth2.png" alt="左メニューの OAuth2" width="300">
+
+**4.** 「**リダイレクト**」の欄に `http://localhost` を入れます（入力欄がなければ「追加」のボタンを押すと出ます）。
+
+<img src="setup-4-redirect.png" alt="リダイレクトに http://localhost を入力" width="560">
+
+**5.** 「**公開クライアント**」のスイッチを ON にします。
+
+<img src="setup-5-public-client.png" alt="公開クライアントのスイッチ" width="560">
+
+**6.** 画面の下に出る「**変更を保存**」を押します。**忘れやすいので注意してください。** 押さないと 4・5 の設定が反映されません。
+
+<img src="setup-6-save.png" alt="変更を保存のボタン" width="400">
+
+**7.** ページ上部の「**クライアントID**」の横のボタンを押してコピーします（数字だけの ID です。画像の番号は例です）。
+
+<img src="setup-7-client-id.png" alt="クライアントIDとコピーボタン" width="340">
+
+**8.** DashTray の ⚙（設定）→「**Discord 連携**」の Client ID に貼り付けて「**適用**」を押します。Discord に許可画面が出たら「認証」を押してください。
+
+<img src="setup-8-dashtray.png" alt="DashTray の設定の Client ID 欄" width="460">
+
+- Client ID は秘密の情報ではありません。「クライアントシークレット」は使わないので、リセットやコピーは不要です
 - 許可画面に出るアプリ名は、2 で付けた名前になります
 
 ## 5. 使い始める
@@ -69,7 +91,7 @@ Discord アカウントがあれば無料で作れます。
 | 症状 | 対処 |
 |---|---|
 | `OAuth2 Error: invalid_scope: The requested scope is invalid, unknown, or malformed.` | 設定の Client ID が空か、別のアプリの ID になっています。自分のアプリの ID を入れて「適用」を押してください。<br>テスター登録の人は、登録がまだ済んでいません。招待を承認してから DashTray を起動し直してください。 |
-| 許可した後に「トークン取得失敗 400 …」と出る | 自分のアプリの「Public Client」が OFF か、`http://localhost` のリダイレクトが未登録です（どちらも「Save Changes」を忘れていないか確認）。直したら設定の「適用」をもう一度押してください。 |
+| 許可した後に「トークン取得失敗 400 …」と出る | 自分のアプリの「Public Client」が OFF か、`http://localhost` のリダイレクトが未登録です（どちらも「変更を保存」を押したか確認）。直したら設定の「適用」をもう一度押してください。 |
 | 「Discord が起動していません — 再接続待ち」のまま | Discord デスクトップアプリを起動してください。起動すると自動でつながります。 |
 | 「Discord の準備待ち」が続く | PC の起動直後は Discord の読み込みが終わるまで最大 1 分ほど待ちます。 |
 | 許可画面で「キャンセル」を押してしまった | DashTray を終了して起動し直すと、もう一度許可画面が出ます。 |
