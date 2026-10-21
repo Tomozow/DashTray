@@ -50,7 +50,9 @@ Windows の起動と一緒に裏で立ち上がり、止まっていた間に届
 - **ログイン情報は暗号化して保存します。** トークンは Windows の DPAPI で暗号化しており、ほかのユーザーや別の PC に `state.json` をコピーしても読めません（同じユーザーとして動くソフトからは守れない点は、ほかの Windows アプリと同じです）。
 - **メッセージ本文はテキストとして表示します。** HTML として解釈しないので、本文に仕込まれたスクリプトは動きません。
 - **管理者権限は不要です。** 自動起動も、今のユーザーの権限だけで動くタスクとして登録します。
-- v1.0.1 以降の [Releases](https://github.com/Tomozow/DashTray/releases) の exe は、このリポジトリのソースから GitHub Actions でビルドしています。ダウンロードしたファイルが本当にそうして作られたものかは、GitHub CLI で確かめられます。
+
+## 配布物の検証
+ v1.0.1 以降の [Releases](https://github.com/Tomozow/DashTray/releases) の exe は、このリポジトリのソースから GitHub Actions でビルドしています。ダウンロードしたファイルが本当にそうして作られたものかは、GitHub CLI で確かめられます。
 
 ```
 gh attestation verify DashTray.zip --repo Tomozow/DashTray
