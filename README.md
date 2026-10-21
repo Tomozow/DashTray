@@ -4,8 +4,6 @@ Discord のメッセージをタスクトレイから確認できる Windows 用
 
 ![デモ](docs/demo.gif)
 
-![スクリーンショット](docs/screenshot.png)
-
 ## こんなときに
 
 ### サーバーが多すぎて、大事な発言を見落とす
