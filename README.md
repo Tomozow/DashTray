@@ -33,6 +33,10 @@ Windows の起動と一緒に裏で立ち上がり、止まっていた間に届
 
 <img src="docs/scene-minimal.png" alt="サイドバーとプレビューを隠したミニマル表示" width="380">
 
+## 導入
+
+**[導入手順](docs/install.md)** を見てください。現在は Discord 側の制限で、作者がテスター登録した人だけが使えます。
+
 ## 動作環境
 
 - Windows 10 / 11
