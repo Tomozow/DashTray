@@ -16,7 +16,6 @@
 
 [Releases](https://github.com/Tomozow/DashTray/releases/latest) から `DashTray.zip` をダウンロードします。
 
-改ざんされていないか確かめたい場合は、README の「[配布物の検証](../README.md#配布物の検証)」を参照してください。
 
 ## 2. 展開して置く
 
