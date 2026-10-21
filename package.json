@@ -1,0 +1,14 @@
+{
+  "name": "discordmailer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:fast": "tauri build --no-bundle --features portable -- --profile fast && node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('src-tauri/target/fast/discordmailer.exe','dist/DashTray.exe')\"",
+    "build:portable": "tauri build --no-bundle --features portable && node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('src-tauri/target/release/discordmailer.exe','dist/DashTray.exe')\" && powershell -NoProfile -Command \"Compress-Archive -Force -Path dist/DashTray.exe -DestinationPath dist/DashTray.zip\""
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.2"
+  }
+}

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>DashTray</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <button id="toggle" title="サイドバーを開閉">☰</button>
+  <div id="tabs"></div>
+  <span id="status"></span>
+  <button id="gear" title="設定">⚙</button>
+</header>
+<dialog id="settings">
+  <h2>設定</h2>
+  <h3>起動</h3>
+  <label><input type="checkbox" id="autostart"> Windows 起動時に起動</label><br>
+  <label class="sub"><input type="checkbox" id="startMinimized"> 最小化して起動（トレイに常駐）</label><br>
+  <label><input type="checkbox" id="alwaysOnTop"> 常に前面に表示</label>
+  <h3>新着</h3>
+  <label><input type="checkbox" id="showPreview"> 本文プレビューを表示</label><br>
+  <label>まとめ方 <select id="groupBy"><option value="server">サーバーごと</option><option value="channel">チャンネルごと</option></select></label>
+  <h3>受信トレイ（すべて受け取る）</h3>
+  <label>使い方 <select id="inboxMode">
+    <option value="off">使わない</option>
+    <option value="mix">サーバーと DM をまとめる</option>
+    <option value="split">サーバーと DM を分ける</option>
+    <option value="server">サーバーのみ</option>
+    <option value="dm">DM のみ</option>
+  </select></label><br>
+  <p class="note">受信トレイに入らない方は ★ を付けたものだけ受け取ります。</p>
+  <h3>通知（トレイごと）</h3>
+  <table>
+    <thead><tr><th>トレイ</th><th id="toastHead">トースト</th><th>通知音</th><th id="badgeHead">未読バッジ</th></tr></thead>
+    <tbody id="notifyRows"></tbody>
+  </table>
+  <label><input type="checkbox" id="trayBadge"> 未読バッジをタスクトレイのアイコンにも出す（赤い点）</label><br>
+  <label>同じチャンネルの通知音を <input type="number" id="soundCooldown" min="0" step="1"> 秒間は鳴らさない（0 で毎回鳴らす）</label>
+  <div class="foot">
+    <button id="testNotify" class="ghost">通知をテスト</button>
+    <button id="closeSettings">閉じる</button>
+  </div>
+</dialog>
+<nav>
+  <div class="tools">
+    <input id="q" type="search" placeholder="検索">
+    <select id="sort" title="並べ替え">
+      <option value="recent">更新順</option>
+      <option value="name">名前順</option>
+      <option disabled>──────────</option>
+      <option value="fav">★のみ表示</option>
+    </select>
+  </div>
+  <div id="nav"></div>
+</nav>
+<main>
+  <div id="list"></div>
+  <div id="split" title="ドラッグで比率を変更"></div>
+  <div id="preview"></div>
+</main>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
