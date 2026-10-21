@@ -43,22 +43,40 @@ Windows の起動と一緒に裏で立ち上がり、止まっていた間に届
 
 ## セキュリティとプライバシー
 
-- **作者のサーバーはありません。** 通信先は、PC 内で動いている Discord アプリ（名前付きパイプ）、ログイン用の `discord.com`、アイコン画像の `cdn.discordapp.com` だけです。利用状況の収集（テレメトリ）もしていません。
-- **読むだけで、送信はできません。** Discord に求める権限は `rpc`・`messages.read`・`rpc.notifications.read` だけで、使う命令もサーバー・チャンネル一覧の取得、新着の購読、チャンネルの最新メッセージの取得に限られます。メッセージの送信や削除、設定の変更をする機能はありません。
-- **Client Secret を持っていません。** ログインは PKCE 方式なので、exe から秘密の鍵を取り出される心配がありません。
-- **偽の Discord には接続しません。** 接続先のプロセスが本物の Discord かを確かめてから、ログイン情報を渡します。
-- **ログイン情報は暗号化して保存します。** トークンは Windows の DPAPI で暗号化しており、ほかのユーザーや別の PC に `state.json` をコピーしても読めません（同じユーザーとして動くソフトからは守れない点は、ほかの Windows アプリと同じです）。
-- **メッセージ本文はテキストとして表示します。** HTML として解釈しないので、本文に仕込まれたスクリプトは動きません。
-- **管理者権限は不要です。** 自動起動も、今のユーザーの権限だけで動くタスクとして登録します。
+| 気になること | DashTray では |
+|---|---|
+| メッセージがどこかに送られない？ | 送られません。通信するのは Discord だけで、作者のサーバーはありません。利用状況の収集もしていません。 |
+| 勝手に発言されない？ | されません。メッセージを読む権限しか持たず、送信・削除・設定の変更はできません。 |
+| ログイン情報は安全？ | 暗号化して保存しています。ファイルを別の PC や別のユーザーにコピーしても読めません。 |
+| 偽物の Discord にだまされない？ | 接続先が本物の Discord かを確かめてから接続します。 |
+| 怪しいメッセージを開いても大丈夫？ | 本文は文字として表示するだけなので、仕込まれたスクリプトは動きません。 |
+| 管理者権限は必要？ | 不要です。自動起動も今のユーザーの権限で登録します。 |
+
+<details>
+<summary>技術的な詳細</summary>
+
+- 通信先: PC 内の Discord アプリ（名前付きパイプ）、`discord.com`（ログイン）、`cdn.discordapp.com`（アイコン画像）
+- 権限（OAuth2 スコープ）: `rpc`、`messages.read`、`rpc.notifications.read`
+- 使う RPC 命令: `AUTHORIZE`、`AUTHENTICATE`、`GET_GUILDS`、`GET_CHANNELS`、`GET_CHANNEL`、`SUBSCRIBE`、`UNSUBSCRIBE`
+- ログインは PKCE 方式で、Client Secret を exe に含みません
+- 接続前にパイプの相手のプロセスが Discord の exe かを確認します
+- トークンは Windows の DPAPI（今のユーザー用）で暗号化して `%APPDATA%\app.discordmailer\state.json` に保存します。同じユーザーとして動くソフトからは守れない点は、ほかの Windows アプリと同じです
+- 本文は `textContent` で表示し、HTML として解釈しません
+- 自動起動はタスクスケジューラに LeastPrivilege（管理者権限なし）で登録します
+
+</details>
 
 ## 配布物の検証
- v1.0.1 以降の [Releases](https://github.com/Tomozow/DashTray/releases) の exe は、このリポジトリのソースから GitHub Actions でビルドしています。ダウンロードしたファイルが本当にそうして作られたものかは、GitHub CLI で確かめられます。
+
+v1.0.1 以降の [Releases](https://github.com/Tomozow/DashTray/releases) のファイルは、このリポジトリのソースから GitHub Actions でビルドしています。ダウンロードしたファイルが改ざんされていないかは、次のどちらかで確かめられます。
+
+GitHub CLI でビルド証明を確かめる:
 
 ```
 gh attestation verify DashTray.zip --repo Tomozow/DashTray
 ```
 
-Release ノートに載せた SHA-256 と、手元のファイルのハッシュを比べることもできます（PowerShell）。
+PowerShell でハッシュを出し、Release ノートの SHA-256 と比べる:
 
 ```
 Get-FileHash DashTray.zip -Algorithm SHA256
