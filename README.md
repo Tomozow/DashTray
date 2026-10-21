@@ -40,13 +40,8 @@ Windows の起動と一緒に裏で立ち上がり、止まっていた間に届
 - 初回起動時に Discord の画面で連携を許可します
 - 設定と既読状態は `%APPDATA%\app.discordmailer` に保存されます
 
-### 制限
-- Discord 本体で読んだメッセージも DashTray では未読のまま（RPC では既読状態を取得できないため）
-- Discord RPC は Discord 側でベータ扱いのため、アプリのオーナーやテスターとして登録されたアカウントでないと連携できない場合があります
 
 ## セキュリティとプライバシー
-
-DashTray は「安全です」と言うだけでなく、次の点をソースコードと配布物で確かめられるようにしています。
 
 - **作者のサーバーはありません。** 通信先は、PC 内で動いている Discord アプリ（名前付きパイプ）、ログイン用の `discord.com`、アイコン画像の `cdn.discordapp.com` だけです。利用状況の収集（テレメトリ）もしていません。
 - **読むだけで、送信はできません。** Discord に求める権限は `rpc`・`messages.read`・`rpc.notifications.read` だけで、使う命令もサーバー・チャンネル一覧の取得、新着の購読、チャンネルの最新メッセージの取得に限られます。メッセージの送信や削除、設定の変更をする機能はありません。
@@ -55,10 +50,7 @@ DashTray は「安全です」と言うだけでなく、次の点をソース�
 - **ログイン情報は暗号化して保存します。** トークンは Windows の DPAPI で暗号化しており、ほかのユーザーや別の PC に `state.json` をコピーしても読めません（同じユーザーとして動くソフトからは守れない点は、ほかの Windows アプリと同じです）。
 - **メッセージ本文はテキストとして表示します。** HTML として解釈しないので、本文に仕込まれたスクリプトは動きません。
 - **管理者権限は不要です。** 自動起動も、今のユーザーの権限だけで動くタスクとして登録します。
-
-### 配布物を確かめる
-
-v1.0.1 以降の [Releases](https://github.com/Tomozow/DashTray/releases) の exe は、このリポジトリのソースから GitHub Actions でビルドしています。ダウンロードしたファイルが本当にそうして作られたものかは、GitHub CLI で確かめられます。
+- v1.0.1 以降の [Releases](https://github.com/Tomozow/DashTray/releases) の exe は、このリポジトリのソースから GitHub Actions でビルドしています。ダウンロードしたファイルが本当にそうして作られたものかは、GitHub CLI で確かめられます。
 
 ```
 gh attestation verify DashTray.zip --repo Tomozow/DashTray
