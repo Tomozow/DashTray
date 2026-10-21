@@ -39,7 +39,7 @@ jobs:
           $notes = @"
           DashTray.zip を展開して DashTray.exe を実行してください（Windows 用ポータブル版）。
 
-          このファイルは GitHub Actions でソースからビルドしたものです。確かめ方は README の「配布物を確かめる」を参照してください。
+          このファイルは GitHub Actions でソースからビルドしたものです。確かめ方は README の「配布物の検証」を参照してください。
 
           SHA-256
           - DashTray.zip: $(& $hash dist/DashTray.zip)
