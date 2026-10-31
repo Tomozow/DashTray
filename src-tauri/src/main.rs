@@ -145,6 +145,7 @@ struct Settings {
     inbox_all: bool, // 受信トレイ（全サーバー）を使う。オフなら ★ したものだけ受信する
     inbox_dm: bool,  // 受信トレイ（全 DM）を使う
     inbox_mix: bool, // サーバーと DM をまとめた受信トレイを使う
+    mix_dm_only: bool, // まとめた受信トレイでは DM だけ通知する（トースト・通知音・未読バッジ）
     #[serde(skip_serializing)]
     inbox_badge: bool, // 旧「未読数をタブに表示」。読み込み時に受信トレイの Notify.badge へ移す
     group_by: String, // 新着のまとめ方 'server' | 'channel'
@@ -156,7 +157,7 @@ struct Settings {
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true, client_id: String::new() }
+        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, mix_dm_only: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true, client_id: String::new() }
     }
 }
 
@@ -235,6 +236,11 @@ fn tray_on(s: &Settings, t: &TrayDef) -> bool {
         "inbox-mix" => s.inbox_mix,
         _ => true,
     }
+}
+
+// このトレイの通知設定を m に使うか（「DM だけ通知」のまとめた受信トレイはサーバーの発言を除く）
+fn tray_notifies(s: &Settings, t: &TrayDef, m: &Msg) -> bool {
+    tray_on(s, t) && in_tray(t, m) && !(s.mix_dm_only && t.id == "inbox-mix" && m.guild_id.is_some())
 }
 
 // 受け取ったメッセージを残すか（使っているトレイのどれかに表示されるものだけ）
@@ -394,7 +400,7 @@ impl Core {
             let d = self.lock();
             let s = &d.saved;
             s.settings.tray_badge
-                && s.messages.iter().any(|m| !m.read && s.trays.iter().any(|t| t.notify.badge && tray_on(&s.settings, t) && in_tray(t, m)))
+                && s.messages.iter().any(|m| !m.read && s.trays.iter().any(|t| t.notify.badge && tray_notifies(&s.settings, t, m)))
         };
         let v = self.view();
         if let Some(t) = self.app.tray_by_id("main") {
@@ -846,7 +852,7 @@ impl Core {
             self.save(&d);
             // このメッセージが表示されるトレイのどれかで有効なら 1 回だけ通知。音はタブの並びで先にあるトレイのもの
             let hits: Vec<(usize, &TrayDef)> =
-                d.saved.trays.iter().enumerate().filter(|(_, t)| !viewing && tray_on(&d.saved.settings, t) && in_tray(t, &item)).collect();
+                d.saved.trays.iter().enumerate().filter(|(_, t)| !viewing && tray_notifies(&d.saved.settings, t, &item)).collect();
             let toast = hits.iter().any(|(_, t)| t.notify.toast);
             let sound = hits.iter().find_map(|(i, t)| t.notify.sound.as_str().filter(|x| !x.is_empty()).map(|x| (*i, x.to_string())));
             if !live {
@@ -1074,6 +1080,9 @@ fn set_settings(c: S, patch: Value) {
         }
         if let Some(b) = patch["inboxMix"].as_bool() {
             d.saved.settings.inbox_mix = b;
+        }
+        if let Some(b) = patch["mixDmOnly"].as_bool() {
+            d.saved.settings.mix_dm_only = b;
         }
         if let Some(b) = patch["startMinimized"].as_bool() {
             d.saved.settings.start_minimized = b;
@@ -1477,6 +1486,23 @@ mod tests {
         assert_eq!(serde_json::from_str::<Saved>(r#"{"token":"dpapi:AAAA"}"#).unwrap().token, None);
         assert_eq!(serde_json::from_str::<Saved>(r#"{"token":null}"#).unwrap().token, None);
         assert_eq!(serde_json::from_str::<Saved>("{}").unwrap().token, None);
+    }
+
+    #[test]
+    fn mix_dm_only() {
+        let tray = |id: &str| TrayDef { id: id.into(), name: String::new(), favorites: IndexMap::new(), notify: default_notify() };
+        let msg = |g: Option<&str>| Msg { id: "1".into(), channel_id: "c".into(), guild_id: g.map(String::from), r#where: String::new(), author: String::new(), avatar: None, content: String::new(), time: String::new(), read: false };
+        let (mix, server, dm) = (tray("inbox-mix"), tray("inbox"), msg(None));
+        let in_guild = msg(Some("g"));
+        let mut s = Settings { inbox_mix: true, inbox_all: true, ..Default::default() };
+        assert!(tray_notifies(&s, &mix, &in_guild) && tray_notifies(&s, &mix, &dm));
+        s.mix_dm_only = true;
+        assert!(!tray_notifies(&s, &mix, &in_guild) && tray_notifies(&s, &mix, &dm));
+        // まとめた受信トレイ以外は変わらない
+        assert!(tray_notifies(&s, &server, &in_guild));
+        // まとめた受信トレイを使っていなければ DM でも通知しない
+        s.inbox_mix = false;
+        assert!(!tray_notifies(&s, &mix, &dm));
     }
 
     #[test]

@@ -310,7 +310,8 @@ function renderTabs() {
     const tab = el('div', 'tab' + (t.id === cur ? ' on' : ''));
     tab.dataset.id = t.id;
     tab.append(el('span', null, t.name));
-    const n = trayMessages(t).filter((m) => !m.read).length;
+    const dmOnly = t.id === 'inbox-mix' && v.settings.mixDmOnly;
+    const n = trayMessages(t).filter((m) => !m.read && !(dmOnly && m.guildId)).length;
     if (n && t.notify.badge) tab.append(el('span', 'badge', n));
     tab.onclick = () => selectTray(t.id);
     tab.ondblclick = () => renameTab(t.id);
@@ -351,6 +352,7 @@ function renderTabs() {
         ...(v.portable ? [] : [menuCheck('トースト通知', t.notify.toast, (on) => api.setTrayNotify(t.id, { toast: on }))]),
         menuCheck('通知音', !!t.notify.sound, (on) => api.setTrayNotify(t.id, { sound: on ? 'chime' : false })),
         menuCheck('未読バッジ', t.notify.badge, (on) => api.setTrayNotify(t.id, { badge: on })),
+        ...(t.id === 'inbox-mix' ? [menuCheck('DM だけ通知する', v.settings.mixDmOnly, (on) => api.setSettings({ mixDmOnly: on }))] : []),
         el('hr'),
         menuItem('名前を変更', () => renameTab(t.id)),
         menuItem('複製', async () => { const id = await api.duplicateTray(t.id); v = await api.get(); selectTray(id); }),
@@ -402,6 +404,8 @@ function renderSettings() {
   document.getElementById('soundCooldown').value = v.settings.soundCooldown;
   document.getElementById('alwaysOnTop').checked = v.settings.alwaysOnTop;
   document.getElementById('trayBadge').checked = v.settings.trayBadge;
+  document.getElementById('mixDmOnly').checked = v.settings.mixDmOnly;
+  document.getElementById('mixDmOnlyRow').hidden = !x;
   document.getElementById('clientId').value = v.settings.clientId;
   document.getElementById('toastHead').hidden = v.portable;
   document.getElementById('notifyRows').replaceChildren(...usable().map((t) => {
@@ -437,6 +441,7 @@ document.getElementById('inboxMode').onchange = (e) => {
 document.getElementById('autostart').onchange = (e) => api.setAutostart(e.target.checked);
 document.getElementById('startMinimized').onchange = (e) => api.setSettings({ startMinimized: e.target.checked });
 document.getElementById('trayBadge').onchange = (e) => api.setSettings({ trayBadge: e.target.checked });
+document.getElementById('mixDmOnly').onchange = (e) => api.setSettings({ mixDmOnly: e.target.checked });
 document.getElementById('alwaysOnTop').onchange = (e) => api.setSettings({ alwaysOnTop: e.target.checked });
 document.getElementById('soundCooldown').onchange = (e) => api.setSettings({ soundCooldown: Math.max(0, Math.floor(+e.target.value) || 0) });
 document.getElementById('applyClientId').onclick = () => api.setClientId(document.getElementById('clientId').value).catch(alert);
