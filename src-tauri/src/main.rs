@@ -1098,8 +1098,24 @@ fn remove_dm(c: S, id: String) {
 #[tauri::command]
 fn open_url(c: S, url: String) {
     if url.starts_with("discord://-/channels/") {
-        let _ = c.app.opener().open_url(url, None::<&str>);
+        open_discord(&c.app, url);
     }
+}
+
+// 最小化中の Discord は discord:// を受け取っても元に戻らないので、先にこちらで戻してから開く
+fn open_discord(app: &AppHandle, url: String) {
+    use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+    unsafe extern "system" fn restore(w: HWND, _: LPARAM) -> windows_sys::core::BOOL {
+        let mut pid = 0;
+        GetWindowThreadProcessId(w, &mut pid);
+        if IsWindowVisible(w) != 0 && IsIconic(w) != 0 && is_discord(pid) {
+            ShowWindow(w, SW_RESTORE);
+            SetForegroundWindow(w);
+        }
+        1
+    }
+    unsafe { EnumWindows(Some(restore), 0) };
+    let _ = app.opener().open_url(url, None::<&str>);
 }
 
 #[tauri::command]
@@ -1291,7 +1307,7 @@ fn open(c: S, id: String) {
         format!("discord://-/channels/{}/{}/{}", m.guild_id.as_deref().unwrap_or("@me"), m.channel_id, m.id)
     });
     if let Some(u) = url {
-        let _ = c.app.opener().open_url(u, None::<&str>);
+        open_discord(&c.app, u);
     }
 }
 
