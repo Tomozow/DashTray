@@ -137,6 +137,8 @@ struct Msg {
     content: String,
     time: String,
     read: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    mine: bool, // 自分の発言（プレビューの履歴にだけ入る）
 }
 
 #[derive(Serialize, Deserialize)]
@@ -154,10 +156,11 @@ struct Settings {
     always_on_top: bool,
     tray_badge: bool, // タスクトレイのアイコンにも未読の赤い点を出す（どのトレイを数えるかは Notify.badge）
     client_id: String, // 自分で作った Developer Portal アプリの ID。空なら共有の CLIENT_ID
+    history: u64,      // プレビュー用にチャンネルごとに残す件数（0〜10、0 なら残さない）
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, mix_dm_only: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true, client_id: String::new() }
+        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, mix_dm_only: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true, client_id: String::new(), history: 5 }
     }
 }
 
@@ -171,6 +174,8 @@ struct Saved {
     dms: IndexMap<String, Dm>,
     #[serde(default)]
     messages: Vec<Msg>, // チャンネル・DM ごとに最新 1 件、新しい順
+    #[serde(default)]
+    history: HashMap<String, Vec<Msg>>, // チャンネル・DM ごとの最近の発言（自分のも含む）、古い順
     #[serde(default)]
     settings: Settings,
 }
@@ -259,6 +264,42 @@ fn avatar_url(u: &Value) -> Option<String> {
 // DM の相手（履歴の自分以外の発言者）
 fn other_author<'a>(ch: &'a Value, me_id: Option<&str>) -> Option<&'a Value> {
     ch["messages"].as_array()?.iter().map(|m| &m["author"]).find(|a| a.is_object() && a["id"].as_str() != me_id)
+}
+
+// m をチャンネルの履歴に時刻順で入れ、新しい n 件だけ残す。履歴が変わったら true
+fn push_history(h: &mut HashMap<String, Vec<Msg>>, m: &Msg, n: usize) -> bool {
+    if n == 0 {
+        return h.remove(&m.channel_id).is_some();
+    }
+    let list = h.entry(m.channel_id.clone()).or_default();
+    if list.iter().any(|x| x.id == m.id) {
+        return false;
+    }
+    let id = m.id.parse::<u64>().unwrap_or(0);
+    let at = list.iter().position(|x| x.id.parse::<u64>().unwrap_or(0) > id).unwrap_or(list.len());
+    list.insert(at, m.clone());
+    list.drain(..list.len().saturating_sub(n));
+    true
+}
+
+fn to_msg(m: &Value, cid: &str, place: &str, guild_id: Option<String>, me_id: Option<&str>) -> Option<Msg> {
+    let a = &m["author"];
+    let id = s(&m["id"]);
+    if !m.is_object() || id.is_empty() {
+        return None;
+    }
+    Some(Msg {
+        id,
+        channel_id: cid.into(),
+        guild_id,
+        r#where: place.into(),
+        author: [&m["nick"], &a["global_name"], &a["username"]].iter().find_map(|v| v.as_str().filter(|x| !x.is_empty())).unwrap_or("?").into(),
+        avatar: avatar_url(a),
+        content: describe(m),
+        time: m["timestamp"].as_str().filter(|x| !x.is_empty()).map_or_else(iso_now, String::from),
+        read: false,
+        mine: me_id.is_some() && a["id"].as_str() == me_id,
+    })
 }
 
 // 本文 + 取得できない内容の説明。RPC のメッセージにはスタンプの情報が無いので、空なら「取得できません」
@@ -796,11 +837,25 @@ impl Core {
                 Err(_) if self.writer.lock().await.is_none() => return, // 切断。再接続後の READY でやり直す
                 Err(_) => continue,
             };
-            let Some(m) = ch["messages"].as_array().and_then(|a| a.iter().max_by_key(|m| s(&m["id"]).parse::<u64>().unwrap_or(0))) else { continue };
-            if s(&m["id"]).parse::<u64>().unwrap_or(0) <= since {
-                continue;
-            }
+            let num = |m: &Value| s(&m["id"]).parse::<u64>().unwrap_or(0);
+            let mut new: Vec<&Value> = ch["messages"].as_array().into_iter().flatten().filter(|m| num(m) > since).collect();
+            new.sort_by_key(|m| num(m));
+            let Some(m) = new.pop() else { continue };
             let (place, gid) = self.place(&cid);
+            {
+                // 最新以外は履歴にだけ入れる（最新は add_message が入れる）
+                let mut d = self.lock();
+                let (me_id, n) = (d.me.as_ref().map(|x| s(&x["id"])), d.saved.settings.history as usize);
+                let mut changed = false;
+                for x in new.iter().filter_map(|x| to_msg(x, &cid, &place, gid.clone(), me_id.as_deref())) {
+                    if receives(&d.saved, &x) {
+                        changed |= push_history(&mut d.saved.history, &x, n);
+                    }
+                }
+                if changed {
+                    self.save(&d);
+                }
+            }
             added += 1;
             if let Some(hit) = self.add_message(&cid, place, gid, m, false) {
                 if best.as_ref().is_none_or(|b| hit.0 < b.0) {
@@ -817,30 +872,22 @@ impl Core {
         let (title, body, toast, sound) = {
             let mut d = self.lock();
             let me_id = d.me.as_ref().map(|x| s(&x["id"]));
-            let id = s(&m["id"]);
-            let a = &m["author"];
-            if !m.is_object() || (me_id.is_some() && a["id"].as_str() == me_id.as_deref()) || d.saved.messages.iter().any(|x| x.id == id) {
-                return None;
-            }
-            let author = [&m["nick"], &a["global_name"], &a["username"]]
-                .iter()
-                .find_map(|v| v.as_str().filter(|x| !x.is_empty()))
-                .unwrap_or("?")
-                .to_string();
-            let mut item = Msg {
-                id,
-                channel_id: cid.into(),
-                guild_id,
-                r#where: place.clone(),
-                author: author.clone(),
-                avatar: avatar_url(a),
-                content: describe(m),
-                time: m["timestamp"].as_str().filter(|x| !x.is_empty()).map_or_else(iso_now, String::from),
-                read: false,
-            };
+            let mut item = to_msg(m, cid, &place, guild_id, me_id.as_deref())?;
             if !receives(&d.saved, &item) {
                 return None;
             }
+            let n = d.saved.settings.history as usize;
+            let changed = push_history(&mut d.saved.history, &item, n);
+            // 自分の発言は履歴にだけ入れる（一覧・未読・通知には入れない）
+            if item.mine || d.saved.messages.iter().any(|x| x.id == item.id) {
+                if changed {
+                    self.save(&d);
+                    drop(d);
+                    self.update();
+                }
+                return None;
+            }
+            let author = item.author.clone();
             // Discord でこのチャンネルを開いて見ているなら既読にして通知しない
             let viewing = discord_title().is_some_and(|t| title_shows(&t, d.chan_info.get(cid), d.saved.dms.get(cid)));
             item.read = viewing;
@@ -901,6 +948,11 @@ type S<'a> = State<'a, Arc<Core>>;
 #[tauri::command]
 fn get(c: S) -> Value {
     c.view()
+}
+
+#[tauri::command]
+fn history(c: S, channel_id: String) -> Vec<Msg> {
+    c.lock().saved.history.get(&channel_id).cloned().unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1089,6 +1141,14 @@ fn set_settings(c: S, patch: Value) {
         }
         if let Some(n) = patch["soundCooldown"].as_u64() {
             d.saved.settings.sound_cooldown = n;
+        }
+        if let Some(n) = patch["history"].as_u64() {
+            let n = n.min(10);
+            d.saved.settings.history = n;
+            for l in d.saved.history.values_mut() {
+                l.drain(..l.len().saturating_sub(n as usize));
+            }
+            d.saved.history.retain(|_, l| !l.is_empty());
         }
         if let Some(b) = patch["trayBadge"].as_bool() {
             d.saved.settings.tray_badge = b;
@@ -1429,7 +1489,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            get, load_channels, set_fav, refresh, add_dm, mark_read, mark_read_in, remove_dm, open_url, mark_all_read, set_settings, set_client_id, set_tray_notify,
+            get, history, load_channels, set_fav, refresh, add_dm, mark_read, mark_read_in, remove_dm, open_url, mark_all_read, set_settings, set_client_id, set_tray_notify,
             set_autostart, test_notify, add_tray, duplicate_tray, reorder_trays, rename_tray, delete_tray, open
         ])
         .run(tauri::generate_context!())
@@ -1448,6 +1508,20 @@ mod tests {
         assert_eq!(describe(&json!({ "content": "hi", "attachments": [{ "content_type": "image/png", "filename": "a.png" }] })), "hi [画像: a.png]");
         assert_eq!(describe(&json!({ "content": "", "embeds": [{}] })), "[埋め込み]");
         assert_eq!(describe(&json!({})), "[スタンプなど（内容を取得できません）]");
+    }
+
+    #[test]
+    fn history_keeps_latest_n_in_order() {
+        let m = |id: &str| to_msg(&json!({ "id": id, "author": { "id": "9", "username": "a" } }), "c", "p", None, Some("9")).unwrap();
+        let mut h = HashMap::new();
+        assert!(m("1").mine);
+        for id in ["3", "1", "2", "4"] {
+            assert!(push_history(&mut h, &m(id), 3));
+        }
+        assert!(!push_history(&mut h, &m("4"), 3));
+        assert_eq!(h["c"].iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["2", "3", "4"]);
+        assert!(push_history(&mut h, &m("5"), 0));
+        assert!(h.is_empty());
     }
 
     #[test]
@@ -1491,7 +1565,7 @@ mod tests {
     #[test]
     fn mix_dm_only() {
         let tray = |id: &str| TrayDef { id: id.into(), name: String::new(), favorites: IndexMap::new(), notify: default_notify() };
-        let msg = |g: Option<&str>| Msg { id: "1".into(), channel_id: "c".into(), guild_id: g.map(String::from), r#where: String::new(), author: String::new(), avatar: None, content: String::new(), time: String::new(), read: false };
+        let msg = |g: Option<&str>| Msg { id: "1".into(), channel_id: "c".into(), guild_id: g.map(String::from), r#where: String::new(), author: String::new(), avatar: None, content: String::new(), time: String::new(), read: false, mine: false };
         let (mix, server, dm) = (tray("inbox-mix"), tray("inbox"), msg(None));
         let in_guild = msg(Some("g"));
         let mut s = Settings { inbox_mix: true, inbox_all: true, ..Default::default() };

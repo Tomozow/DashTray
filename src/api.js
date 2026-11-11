@@ -3,6 +3,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 window.api = {
   get: () => invoke('get'),
+  history: (channelId) => invoke('history', { channelId }),
   loadChannels: (guildId) => invoke('load_channels', { guildId }),
   setFav: (trayId, id, fav) => invoke('set_fav', { trayId, id, fav }),
   refresh: () => invoke('refresh'),

@@ -69,9 +69,17 @@
   .msg .w .txt { overflow:hidden; text-overflow:ellipsis; }
   body.noPreview main { grid-template-rows:1fr; }
   body.noPreview #split, body.noPreview #preview { display:none; }
-  #preview { overflow:auto; padding:12px; white-space:pre-wrap; word-break:break-word; }
-  #preview .meta { color:var(--dim); margin-bottom:8px; }
-  #openBtn { position:fixed; right:16px; bottom:16px; }
+  #preview { overflow:auto; padding:12px; }
+  #preview .meta { position:sticky; top:-12px; margin:-12px -12px 8px; padding:8px 12px; background:var(--bg); border-bottom:1px solid var(--line); color:var(--dim); gap:8px; }
+  #preview .meta .txt { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #preview .link { background:none; color:var(--dim); font-size:12px; padding:2px 6px; white-space:nowrap; }
+  #preview .link:hover { color:var(--fg); background:#3a3c42; }
+  .pm { padding:4px 8px; border-left:3px solid transparent; border-radius:2px; margin-bottom:6px; }
+  .pm.mine { border-left-color:var(--accent); }
+  .pm.cur { background:#2b2d31; }
+  .pm .who { display:flex; align-items:center; color:var(--dim); font-size:12px; margin-bottom:2px; }
+  .pm .who .av { width:18px; height:18px; }
+  .pm .body { white-space:pre-wrap; word-break:break-word; }
   .empty { color:var(--dim); padding:20px; }
   #gear { background:none; color:var(--dim); font-size:16px; padding:2px 6px; }
   #gear:hover { color:var(--fg); }
@@ -83,7 +91,8 @@
   dialog th { font-weight:normal; color:var(--dim); font-size:12px; text-align:center; }
   dialog th:first-child, dialog td:first-child { text-align:left; }
   dialog td { padding:4px 0; text-align:center; border-top:1px solid var(--line); }
-  dialog .foot { display:flex; justify-content:space-between; margin-top:16px; }
+  /* 設定が長くても「閉じる」をスクロールせずに押せるよう下に貼り付ける */
+  dialog .foot { display:flex; justify-content:space-between; position:sticky; bottom:-20px; margin:16px -20px -20px; padding:12px 20px; background:var(--panel); border-top:1px solid var(--line); }
   dialog .ghost { background:#4e5058; }
   dialog select, dialog input[type=number], #clientId { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:2px 4px; font:inherit; font-size:12px; }
   dialog .sub { margin-left:22px; }

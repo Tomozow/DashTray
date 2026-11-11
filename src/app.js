@@ -1,4 +1,4 @@
-let v = null, selected = null;
+let v = null, selected = null, selCh = null; // selCh: 選んだメッセージのチャンネル
 let cur = null; // 表示中のトレイ id
 let favs = {}, msgs = []; // 表示中トレイのお気に入り / 新着
 let editing = false; // タブ名を編集中は再描画しない
@@ -210,22 +210,39 @@ function renderList() {
     const r = el('div', 'msg' + (m.read ? '' : ' unread') + (selected === m.id ? ' sel' : ''));
     r.append(...cols.map((c) => c.cell(m)));
     // サーバーごとのときはまとめた分を全部既読にする
-    r.onclick = () => { selected = m.id; if (!m.read) byServer() && m.guildId ? api.markReadIn(m.guildId) : api.markRead(m.id); render(); };
+    r.onclick = () => { selected = m.id; selCh = m.channelId; if (!m.read) byServer() && m.guildId ? api.markReadIn(m.guildId) : api.markRead(m.id); render(); };
     r.ondblclick = () => api.open(m.id);
     r.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showMenu(e, msgMenu(m)); };
     list.append(r);
   }
 }
 
-function renderPreview() {
-  const p = document.getElementById('preview');
-  p.replaceChildren();
+// 選んだメッセージのチャンネルの履歴（自分の発言も含む）を古い順に並べる
+let previewSeq = 0;
+async function renderPreview() {
+  const seq = ++previewSeq;
   const m = v.messages.find((x) => x.id === selected);
+  let list = m && v.settings.history ? await api.history(m.channelId).catch(() => []) : [];
+  if (seq !== previewSeq) return; // 待っている間に描き直された
+  const p = document.getElementById('preview');
+  // 別のチャンネルか新しい発言が増えたら最新までスクロールし、それ以外の描き直しでは読んでいる位置を保つ
+  const top = p.scrollTop, prev = p.dataset.last;
+  p.replaceChildren();
+  p.dataset.last = '';
   if (!m) return;
-  const b = el('button', null, 'Discord で開く');
-  b.id = 'openBtn';
+  if (!list.some((x) => x.id === m.id)) list = [...list, m].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+  p.dataset.last = list.at(-1).id;
+  const b = el('button', 'link', 'Discord で開く ↗');
   b.onclick = () => api.open(m.id);
-  p.append(who(m, 'div', 'meta', `${m.author}  ${m.where}  ${new Date(m.time).toLocaleString()}`), b, el('p', null, m.content));
+  const meta = el('div', 'meta');
+  meta.append(el('span', 'txt', m.where), b);
+  p.append(meta);
+  for (const x of list) {
+    const d = el('div', 'pm' + (x.mine ? ' mine' : '') + (x.id === m.id ? ' cur' : ''));
+    d.append(who(x, 'div', 'who', `${x.author}  ${new Date(x.time).toLocaleString()}`), el('div', 'body', x.content));
+    p.append(d);
+  }
+  p.scrollTop = p.dataset.last !== prev ? p.scrollHeight : top;
 }
 
 // 状態は変わったときだけ数秒表示する。対応が必要なもの（エラー・切断など）は解決するまで出し続ける
@@ -379,6 +396,8 @@ function render() {
   if (!visible.some((t) => t.id === cur)) cur = (visible[0] ?? usable()[0] ?? v.trays[0]).id;
   const tray = v.trays.find((t) => t.id === cur);
   favs = tray.favorites;
+  // 見ているチャンネルに新着が来ると前のメッセージは一覧から消えるので、同じチャンネルの最新を選び直す
+  if (selected && !v.messages.some((x) => x.id === selected)) selected = v.messages.find((x) => x.channelId === selCh)?.id ?? null;
   msgs = trayMessages(tray);
   showStatus(v.status);
   syncSort(); renderTabs(); renderNav(); renderList(); renderPreview();
@@ -402,6 +421,7 @@ function renderSettings() {
   document.getElementById('startMinimized').checked = v.settings.startMinimized;
   document.getElementById('startMinimized').disabled = !v.autostart;
   document.getElementById('soundCooldown').value = v.settings.soundCooldown;
+  document.getElementById('history').value = v.settings.history;
   document.getElementById('alwaysOnTop').checked = v.settings.alwaysOnTop;
   document.getElementById('trayBadge').checked = v.settings.trayBadge;
   document.getElementById('mixDmOnly').checked = v.settings.mixDmOnly;
@@ -443,6 +463,7 @@ document.getElementById('startMinimized').onchange = (e) => api.setSettings({ st
 document.getElementById('trayBadge').onchange = (e) => api.setSettings({ trayBadge: e.target.checked });
 document.getElementById('mixDmOnly').onchange = (e) => api.setSettings({ mixDmOnly: e.target.checked });
 document.getElementById('alwaysOnTop').onchange = (e) => api.setSettings({ alwaysOnTop: e.target.checked });
+document.getElementById('history').onchange = (e) => api.setSettings({ history: Math.min(10, Math.max(0, Math.floor(+e.target.value) || 0)) });
 document.getElementById('soundCooldown').onchange = (e) => api.setSettings({ soundCooldown: Math.max(0, Math.floor(+e.target.value) || 0) });
 document.getElementById('applyClientId').onclick = () => api.setClientId(document.getElementById('clientId').value).catch(alert);
 document.getElementById('testNotify').onclick = () => api.testNotify();
