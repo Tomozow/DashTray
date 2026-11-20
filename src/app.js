@@ -225,6 +225,13 @@ function renderList() {
 
 // 選んだメッセージのチャンネルの履歴（自分の発言も含む）を古い順に並べる
 let previewSeq = 0;
+// 発言の書き込み先の札。スレッドの発言は親チャンネル（分かれば）の札とスレッドの札を並べる
+function tags(x) {
+  const p = place(x)[1], tail = ' › ' + x.thread;
+  const ch = !x.thread ? p : p.endsWith(tail) ? p.slice(0, -tail.length) : '';
+  return [ch && el('span', 'tag', ch), x.thread && el('span', 'tag th', 'スレッド ' + x.thread)].filter(Boolean);
+}
+
 // 本文の http(s) の URL をリンクにする。クリックで既定のブラウザ（Discord のリンクは Discord）で開く
 function linkify(text) {
   const d = el('div', 'body');
@@ -258,14 +265,17 @@ async function renderPreview() {
   const b = el('button', 'link', 'Discord で開く ↗');
   b.onclick = () => api.open(m.id);
   const meta = el('div', 'meta');
-  meta.append(el('span', 'txt', m.where), b);
+  // 上部は一覧でまとめた単位: サーバーごとならサーバー名、スレッドをまとめるなら親チャンネル
+  const head = byServer() && m.guildId ? place(m)[0] : merged() && m.thread ? m.where.slice(0, -(' › ' + m.thread).length) : m.where;
+  meta.append(el('span', 'txt', head), b);
   p.append(meta);
-  // スレッドをまとめているときは、発言ごとに書き込み先（#チャンネル か › スレッド）を出す
-  const mixed = merged() && list.some((x) => x.thread);
+  // 書き込み先が 2 か所以上なら、発言ごとに時刻の横へチャンネル・スレッドの札を付ける
+  const mixed = new Set(list.map((x) => x.channelId)).size > 1;
   for (const x of list) {
     const d = el('div', 'pm' + (x.mine ? ' mine' : '') + (x.id === m.id ? ' cur' : ''));
-    const at = mixed ? '  ' + (x.thread ? '› ' + x.thread : place(x)[1]) : '';
-    d.append(who(x, 'div', 'who', `${x.author}  ${new Date(x.time).toLocaleString()}${at}`), linkify(x.content));
+    const w = who(x, 'div', 'who', `${x.author}  ${new Date(x.time).toLocaleString()}`);
+    if (mixed) w.append(...tags(x));
+    d.append(w, linkify(x.content));
     p.append(d);
   }
   p.scrollTop = p.dataset.last !== prev ? p.scrollHeight : top;
@@ -450,7 +460,10 @@ function renderSettings() {
   document.getElementById('history').value = v.settings.history;
   document.getElementById('alwaysOnTop').checked = v.settings.alwaysOnTop;
   document.getElementById('trayBadge').checked = v.settings.trayBadge;
-  document.getElementById('mergeThreads').checked = v.settings.mergeThreads;
+  // サーバーごとならスレッドもサーバーにまとまるので、チェック済みで変えられないように見せる（保存値はそのまま）
+  document.getElementById('mergeThreads').checked = byServer() || v.settings.mergeThreads;
+  document.getElementById('mergeThreads').disabled = byServer();
+  document.getElementById('mergeThreadsNote').hidden = !byServer();
   document.getElementById('mixDmOnly').checked = v.settings.mixDmOnly;
   document.getElementById('mixDmOnlyRow').hidden = !x;
   document.getElementById('clientId').value = v.settings.clientId;

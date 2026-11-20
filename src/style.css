@@ -105,10 +105,14 @@
   dialog .opt small { display:block; margin-top:2px; font-size:12px; color:var(--dim); }
   dialog .sub { padding-left:22px; }
   dialog div.opt { cursor:default; }
+  dialog .opt:has(input:disabled) { color:var(--dim); cursor:default; }
+  dialog .opt small[hidden] { display:none; }
   dialog input[type=checkbox] { margin:0; width:16px; height:16px; }
   dialog input[type=number] { width:4em; }
   #clientId { width:11em; }
   dialog table { margin-bottom:4px; }
   dialog table + .opt { border-top:0; }
+  .pm .who .tag { margin-left:6px; padding:0 6px; border-radius:3px; background:#3a3c42; color:var(--fg); font-size:11px; line-height:17px; white-space:nowrap; }
+  .pm .who .tag.th { background:rgba(88,101,242,.3); color:#dfe1fd; }
   .pm .body a { color:#00a8fc; text-decoration:none; }
   .pm .body a:hover { text-decoration:underline; }

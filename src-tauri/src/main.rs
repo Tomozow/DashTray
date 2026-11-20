@@ -1047,18 +1047,18 @@ fn history(c: S, channel_id: String) -> Vec<Msg> {
     merged_history(&c.lock().saved, &channel_id)
 }
 
-// スレッドをまとめる設定なら、親チャンネルとそのスレッドの履歴を合わせた新しい n 件を古い順に
+// 一覧のまとめ方と同じ単位で履歴を集め、新しい n 件を古い順に。
+// サーバーごとならそのサーバー全体、スレッドをまとめるなら親チャンネルとそのスレッド、それ以外はそのチャンネルだけ
 fn merged_history(saved: &Saved, cid: &str) -> Vec<Msg> {
-    if !saved.settings.merge_threads {
-        return saved.history.get(cid).cloned().unwrap_or_default();
-    }
+    let st = &saved.settings;
+    let guild = saved.history.get(cid).and_then(|l| l.first()).and_then(|m| m.guild_id.as_deref()).filter(|_| st.group_by == "server");
     let root = saved.threads.get(cid).and_then(|t| t.parent_id.as_deref()).unwrap_or(cid);
-    let mut v: Vec<Msg> = saved
-        .history
-        .iter()
-        .filter(|(k, _)| *k == root || saved.threads.get(*k).is_some_and(|t| t.parent_id.as_deref() == Some(root)))
-        .flat_map(|(_, l)| l.iter().cloned())
-        .collect();
+    let keep = |k: &str, m: &Msg| match guild {
+        Some(g) => m.guild_id.as_deref() == Some(g),
+        None if st.merge_threads => k == root || saved.threads.get(k).is_some_and(|t| t.parent_id.as_deref() == Some(root)),
+        None => k == cid,
+    };
+    let mut v: Vec<Msg> = saved.history.iter().flat_map(|(k, l)| l.iter().filter(move |m| keep(k, m)).cloned()).collect();
     v.sort_by_key(|m| m.id.parse::<u64>().unwrap_or(0));
     v.drain(..v.len().saturating_sub(saved.settings.history as usize));
     v
@@ -1723,6 +1723,7 @@ mod tests {
         let mut saved = Saved::default();
         saved.threads.insert("t1".into(), th.clone());
         saved.settings.history = 3;
+        saved.settings.group_by = "channel".into();
         for (id, cid) in [("1", "p1"), ("2", "t1"), ("3", "p1"), ("4", "t1"), ("5", "other")] {
             push_history(&mut saved.history, &with_thread(m(id, cid), saved.threads.get(cid)), 3);
         }
@@ -1731,6 +1732,9 @@ mod tests {
         saved.settings.merge_threads = true;
         assert_eq!(ids(merged_history(&saved, "t1")), ["2", "3", "4"]);
         assert_eq!(ids(merged_history(&saved, "p1")), ["2", "3", "4"]);
+        // サーバーごとならサーバー全体の新しい n 件
+        saved.settings.group_by = "server".into();
+        assert_eq!(ids(merged_history(&saved, "p1")), ["3", "4", "5"]);
         // 親チャンネルの ★ でスレッドの発言もトレイに入る
         let mut tray = TrayDef { id: "x".into(), name: String::new(), favorites: IndexMap::new(), notify: default_notify() };
         tray.favorites.insert("p1".into(), Fav { kind: "channel".into(), name: String::new() });
