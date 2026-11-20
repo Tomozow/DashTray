@@ -14,35 +14,34 @@
 </header>
 <dialog id="settings">
   <h2>設定</h2>
+  <!-- 各行は「左に項目名と説明、右に操作部品」 -->
   <h3>起動</h3>
-  <label><input type="checkbox" id="autostart"> Windows 起動時に起動</label><br>
-  <label class="sub"><input type="checkbox" id="startMinimized"> 最小化して起動（トレイに常駐）</label><br>
-  <label><input type="checkbox" id="alwaysOnTop"> 常に前面に表示</label>
-  <h3>新着</h3>
-  <label><input type="checkbox" id="showPreview"> 本文プレビューを表示</label><br>
-  <label class="sub">プレビューに残す履歴 <input type="number" id="history" min="0" max="10" step="1"> 件（0 で選んだ 1 件だけ。自分の発言も含む）</label><br>
-  <label>まとめ方 <select id="groupBy"><option value="server">サーバーごと</option><option value="channel">チャンネルごと</option></select></label>
-  <h3>受信トレイ（すべて受け取る）</h3>
-  <label>使い方 <select id="inboxMode">
+  <label class="opt"><span>Windows 起動時に起動</span><input type="checkbox" id="autostart"></label>
+  <label class="opt sub"><span>最小化して起動<small>タスクトレイに常駐します</small></span><input type="checkbox" id="startMinimized"></label>
+  <label class="opt"><span>常に前面に表示</span><input type="checkbox" id="alwaysOnTop"></label>
+  <h3>一覧とプレビュー</h3>
+  <label class="opt"><span>新着のまとめ方</span><select id="groupBy"><option value="server">サーバーごと</option><option value="channel">チャンネルごと</option></select></label>
+  <label class="opt"><span>スレッドの発言を親チャンネルにまとめる</span><input type="checkbox" id="mergeThreads"></label>
+  <label class="opt"><span>本文プレビューを表示</span><input type="checkbox" id="showPreview"></label>
+  <label class="opt sub"><span>プレビューに残す履歴<small>0 で選んだ 1 件だけ。自分の発言も含みます</small></span><span><input type="number" id="history" min="0" max="10" step="1"> 件</span></label>
+  <h3>受信トレイ</h3>
+  <label class="opt"><span>使い方<small>受信トレイに入らない方は ★ を付けたものだけ受け取ります</small></span><select id="inboxMode">
     <option value="off">使わない</option>
     <option value="mix">サーバーと DM をまとめる</option>
     <option value="split">サーバーと DM を分ける</option>
     <option value="server">サーバーのみ</option>
     <option value="dm">DM のみ</option>
-  </select></label><br>
-  <p class="note">受信トレイに入らない方は ★ を付けたものだけ受け取ります。</p>
-  <h3>通知（トレイごと）</h3>
+  </select></label>
+  <h3>通知</h3>
   <table>
     <thead><tr><th>トレイ</th><th id="toastHead">トースト</th><th>通知音</th><th id="badgeHead">未読バッジ</th></tr></thead>
     <tbody id="notifyRows"></tbody>
   </table>
-  <div id="mixDmOnlyRow"><label><input type="checkbox" id="mixDmOnly"> まとめた受信トレイでは DM だけ通知する（サーバーの発言は一覧に出るだけ）</label></div>
-  <label><input type="checkbox" id="trayBadge"> 未読バッジをタスクトレイのアイコンにも出す（赤い点）</label><br>
-  <label>同じチャンネルの通知音を <input type="number" id="soundCooldown" min="0" step="1"> 秒間は鳴らさない（0 で毎回鳴らす）</label>
+  <label class="opt" id="mixDmOnlyRow"><span>まとめた受信トレイでは DM だけ通知<small>サーバーの発言は一覧に出るだけになります</small></span><input type="checkbox" id="mixDmOnly"></label>
+  <label class="opt"><span>タスクトレイのアイコンにも未読を出す<small>赤い点で知らせます</small></span><input type="checkbox" id="trayBadge"></label>
+  <label class="opt"><span>同じチャンネルの通知音を鳴らさない間隔<small>0 で毎回鳴らします</small></span><span><input type="number" id="soundCooldown" min="0" step="1"> 秒</span></label>
   <h3>Discord 連携</h3>
-  <label>Client ID <input id="clientId" placeholder="空欄なら共有の ID" inputmode="numeric"></label>
-  <button id="applyClientId" class="ghost">適用</button>
-  <p class="note">テスター登録をしていない人は、自分で作った Discord アプリの ID を入れます（導入手順を参照）。<br>変えると Discord で許可し直します。</p>
+  <div class="opt"><span>Client ID<small>テスター登録をしていない人は、自分で作った Discord アプリの ID を入れます（導入手順を参照）。変えると Discord で許可し直します</small></span><span><input id="clientId" placeholder="空欄なら共有の ID" inputmode="numeric"> <button id="applyClientId" class="ghost">適用</button></span></div>
   <div class="foot">
     <button id="testNotify" class="ghost">通知をテスト</button>
     <button id="closeSettings">閉じる</button>

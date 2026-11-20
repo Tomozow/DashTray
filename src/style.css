@@ -95,8 +95,20 @@
   dialog .foot { display:flex; justify-content:space-between; position:sticky; bottom:-20px; margin:16px -20px -20px; padding:12px 20px; background:var(--panel); border-top:1px solid var(--line); }
   dialog .ghost { background:#4e5058; }
   dialog select, dialog input[type=number], #clientId { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:2px 4px; font:inherit; font-size:12px; }
-  dialog .sub { margin-left:22px; }
-  dialog .note { margin:6px 0 0; font-size:12px; color:var(--dim); }
-  dialog input[type=number] { width:5em; }
-  #clientId { width:14em; }
-  dialog table + label { display:block; margin-top:10px; }
+  dialog { width:520px; }
+  dialog h3:first-of-type { margin-top:0; }
+  dialog .opt { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:7px 0; border-top:1px solid var(--line); cursor:pointer; }
+  dialog h3 + .opt { border-top:0; }
+  dialog .opt[hidden] { display:none; }
+  dialog .opt > span:first-child { flex:1; }
+  dialog .opt > :last-child { flex:none; white-space:nowrap; }
+  dialog .opt small { display:block; margin-top:2px; font-size:12px; color:var(--dim); }
+  dialog .sub { padding-left:22px; }
+  dialog div.opt { cursor:default; }
+  dialog input[type=checkbox] { margin:0; width:16px; height:16px; }
+  dialog input[type=number] { width:4em; }
+  #clientId { width:11em; }
+  dialog table { margin-bottom:4px; }
+  dialog table + .opt { border-top:0; }
+  .pm .body a { color:#00a8fc; text-decoration:none; }
+  .pm .body a:hover { text-decoration:underline; }

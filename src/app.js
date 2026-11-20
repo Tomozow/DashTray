@@ -11,11 +11,14 @@ const usable = () => v.trays.filter((t) => t.id === 'inbox' ? v.settings.inboxAl
 // トレイの新着: 受信トレイはサーバー / DM の全件、それ以外は ★ したサーバー / チャンネル / DM のもの。
 // 設定に従いサーバーごと（DM は DM ごと）かチャンネルごとに最新 1 件へまとめ、まとめた中に未読があれば未読にする
 const byServer = () => v.settings.groupBy !== 'channel';
+const merged = () => v.settings.mergeThreads; // スレッドの発言を親チャンネルにまとめる
+const inFav = (f, m) => !!(f[m.channelId] || (m.parentId && f[m.parentId]) || (m.guildId && f[m.guildId]));
+const chKey = (m) => (merged() && m.parentId) || m.channelId; // 一覧でまとめる単位のチャンネル
 function trayMessages(t) {
   const groups = new Map();
   for (const m of v.messages) { // 新しい順
-    if (t.id === 'inbox-mix' ? false : t.id === 'inbox' ? !m.guildId : t.id === 'inbox-dm' ? !!m.guildId : !t.favorites[m.channelId] && !(m.guildId && t.favorites[m.guildId])) continue;
-    const k = byServer() ? m.guildId || m.channelId : m.channelId;
+    if (t.id === 'inbox-mix' ? false : t.id === 'inbox' ? !m.guildId : t.id === 'inbox-dm' ? !!m.guildId : !inFav(t.favorites, m)) continue;
+    const k = byServer() ? m.guildId || m.channelId : chKey(m);
     groups.has(k) ? groups.get(k).push(m) : groups.set(k, [m]);
   }
   return [...groups.values()].map((g) => ({ ...g[0], read: g.every((x) => x.read) }));
@@ -49,7 +52,7 @@ function row(cls, id, name, onClick, icon) {
   if (!isInbox()) r.append(s);
   if (icon !== undefined) r.append(avatar(icon, name));
   r.append(el('span', 'name', name));
-  const unread = msgs.filter((m) => !m.read && (m.channelId === id || m.guildId === id)).length;
+  const unread = msgs.filter((m) => !m.read && (m.channelId === id || m.parentId === id || m.guildId === id)).length;
   if (unread) r.append(el('span', null, unread));
   r.onclick = onClick ?? toggle;
   return r;
@@ -61,7 +64,7 @@ let favOnly = false; // お気に入りのみ表示（並べ替えのプルダ�
 
 // 新着が届いた最新時刻（届いていなければ 0）
 function lastTime(id) {
-  const m = msgs.find((x) => x.channelId === id || x.guildId === id); // 新しい順
+  const m = msgs.find((x) => x.channelId === id || x.parentId === id || x.guildId === id); // 新しい順
   return m ? Date.parse(m.time) : 0;
 }
 
@@ -153,16 +156,19 @@ function who(m, tag, cls, text) {
 }
 
 // where は「サーバー名 #チャンネル名」か「DM 相手の名前」。チャンネル名に空白は入らないので最後の ' #' で分ける
+// スレッドなら「サーバー名 #親チャンネル名 › スレッド名」で、チャンネルの側に「› スレッド名」まで入れる
 function place(m) {
   if (!m.guildId) return ['DM', '@' + m.where.replace(/^DM /, '')];
-  const i = m.where.lastIndexOf(' #');
-  return i < 0 ? [m.where, ''] : [m.where.slice(0, i), m.where.slice(i + 1)];
+  const tail = m.thread ? ' › ' + m.thread : '';
+  const w = m.where.slice(0, m.where.length - tail.length);
+  const i = w.lastIndexOf(' #');
+  return i < 0 ? [w, tail.trim()] : [w.slice(0, i), w.slice(i + 1) + tail];
 }
 
 // w: 既定の幅(px)。本文は残りの幅を使う
 const COLS = [
   // 受信トレイだけ: 他のトレイで ★ しているチャンネル / サーバー / DM に ★ を出す。行ごとに別の grid なので、無い行も透明な ★ で幅をそろえる
-  { key: 'star', label: '★', fit: true, cell: (m) => el('span', v.trays.some((t) => t.favorites[m.channelId] || (m.guildId && t.favorites[m.guildId])) ? 'fav' : 'fav off', '★') },
+  { key: 'star', label: '★', fit: true, cell: (m) => el('span', v.trays.some((t) => inFav(t.favorites, m)) ? 'fav' : 'fav off', '★') },
   { key: 'time', label: '時間', w: 140, cell: (m) => el('span', 't', new Date(m.time).toLocaleString()) },
   { key: 'author', label: '投稿者', w: 160, cell: (m) => who(m, 'span', 'w', m.author) },
   { key: 'where', label: 'サーバー', w: 160, cell: (m) => el('span', 't', place(m)[0]) },
@@ -210,7 +216,7 @@ function renderList() {
     const r = el('div', 'msg' + (m.read ? '' : ' unread') + (selected === m.id ? ' sel' : ''));
     r.append(...cols.map((c) => c.cell(m)));
     // サーバーごとのときはまとめた分を全部既読にする
-    r.onclick = () => { selected = m.id; selCh = m.channelId; if (!m.read) byServer() && m.guildId ? api.markReadIn(m.guildId) : api.markRead(m.id); render(); };
+    r.onclick = () => { selected = m.id; selCh = m.channelId; if (!m.read) byServer() && m.guildId ? api.markReadIn(m.guildId) : merged() ? api.markReadIn(chKey(m)) : api.markRead(m.id); render(); };
     r.ondblclick = () => api.open(m.id);
     r.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showMenu(e, msgMenu(m)); };
     list.append(r);
@@ -219,6 +225,23 @@ function renderList() {
 
 // 選んだメッセージのチャンネルの履歴（自分の発言も含む）を古い順に並べる
 let previewSeq = 0;
+// 本文の http(s) の URL をリンクにする。クリックで既定のブラウザ（Discord のリンクは Discord）で開く
+function linkify(text) {
+  const d = el('div', 'body');
+  let i = 0;
+  for (const m of text.matchAll(/https?:\/\/[^\s<>]+[^\s<>.,;:!?)\]'"」』）。、]/g)) {
+    d.append(text.slice(i, m.index));
+    const a = el('a', null, m[0]);
+    a.href = m[0];
+    a.title = m[0];
+    a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); api.openUrl(m[0]); };
+    d.append(a);
+    i = m.index + m[0].length;
+  }
+  d.append(text.slice(i));
+  return d;
+}
+
 async function renderPreview() {
   const seq = ++previewSeq;
   const m = v.messages.find((x) => x.id === selected);
@@ -237,9 +260,12 @@ async function renderPreview() {
   const meta = el('div', 'meta');
   meta.append(el('span', 'txt', m.where), b);
   p.append(meta);
+  // スレッドをまとめているときは、発言ごとに書き込み先（#チャンネル か › スレッド）を出す
+  const mixed = merged() && list.some((x) => x.thread);
   for (const x of list) {
     const d = el('div', 'pm' + (x.mine ? ' mine' : '') + (x.id === m.id ? ' cur' : ''));
-    d.append(who(x, 'div', 'who', `${x.author}  ${new Date(x.time).toLocaleString()}`), el('div', 'body', x.content));
+    const at = mixed ? '  ' + (x.thread ? '› ' + x.thread : place(x)[1]) : '';
+    d.append(who(x, 'div', 'who', `${x.author}  ${new Date(x.time).toLocaleString()}${at}`), linkify(x.content));
     p.append(d);
   }
   p.scrollTop = p.dataset.last !== prev ? p.scrollHeight : top;
@@ -424,6 +450,7 @@ function renderSettings() {
   document.getElementById('history').value = v.settings.history;
   document.getElementById('alwaysOnTop').checked = v.settings.alwaysOnTop;
   document.getElementById('trayBadge').checked = v.settings.trayBadge;
+  document.getElementById('mergeThreads').checked = v.settings.mergeThreads;
   document.getElementById('mixDmOnly').checked = v.settings.mixDmOnly;
   document.getElementById('mixDmOnlyRow').hidden = !x;
   document.getElementById('clientId').value = v.settings.clientId;
@@ -461,6 +488,7 @@ document.getElementById('inboxMode').onchange = (e) => {
 document.getElementById('autostart').onchange = (e) => api.setAutostart(e.target.checked);
 document.getElementById('startMinimized').onchange = (e) => api.setSettings({ startMinimized: e.target.checked });
 document.getElementById('trayBadge').onchange = (e) => api.setSettings({ trayBadge: e.target.checked });
+document.getElementById('mergeThreads').onchange = (e) => api.setSettings({ mergeThreads: e.target.checked });
 document.getElementById('mixDmOnly').onchange = (e) => api.setSettings({ mixDmOnly: e.target.checked });
 document.getElementById('alwaysOnTop').onchange = (e) => api.setSettings({ alwaysOnTop: e.target.checked });
 document.getElementById('history').onchange = (e) => api.setSettings({ history: Math.min(10, Math.max(0, Math.floor(+e.target.value) || 0)) });

@@ -18,6 +18,7 @@ use tokio::sync::oneshot;
 
 const SCOPES: [&str; 3] = ["rpc", "messages.read", "rpc.notifications.read"];
 const TEXT_TYPES: [i64; 2] = [0, 5]; // テキスト / アナウンス
+const THREAD_TYPES: [i64; 3] = [10, 11, 12]; // アナウンスのスレッド / 公開スレッド / プライベートスレッド
 const CATCH_UP_GAP_MS: u64 = 200; // 起動時の取り込みで GET_CHANNEL を送る間隔
 const MAX_FRAME: usize = 16 << 20; // RPC で受け取る 1 フレームの上限（壊れた長さで巨大なメモリを確保しない）
 
@@ -139,6 +140,19 @@ struct Msg {
     read: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     mine: bool, // 自分の発言（プレビューの履歴にだけ入る）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent_id: Option<String>, // スレッドの発言なら親チャンネル（分からなければ None）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thread: Option<String>, // スレッドの発言ならスレッド名
+}
+
+// RPC ではスレッドの一覧を取れないので、作成の知らせや通知で見つけたものを覚えておく
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct Thread {
+    name: String,
+    guild_id: String,
+    parent_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -157,10 +171,11 @@ struct Settings {
     tray_badge: bool, // タスクトレイのアイコンにも未読の赤い点を出す（どのトレイを数えるかは Notify.badge）
     client_id: String, // 自分で作った Developer Portal アプリの ID。空なら共有の CLIENT_ID
     history: u64,      // プレビュー用にチャンネルごとに残す件数（0〜10、0 なら残さない）
+    merge_threads: bool, // スレッドの発言を親チャンネルの行・履歴にまとめる
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, mix_dm_only: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true, client_id: String::new(), history: 5 }
+        Settings { inbox_all: false, inbox_dm: false, inbox_mix: false, mix_dm_only: false, inbox_badge: true, group_by: "server".into(), start_minimized: true, sound_cooldown: 0, always_on_top: false, tray_badge: true, client_id: String::new(), history: 5, merge_threads: false }
     }
 }
 
@@ -176,6 +191,8 @@ struct Saved {
     messages: Vec<Msg>, // チャンネル・DM ごとに最新 1 件、新しい順
     #[serde(default)]
     history: HashMap<String, Vec<Msg>>, // チャンネル・DM ごとの最近の発言（自分のも含む）、古い順
+    #[serde(default)]
+    threads: IndexMap<String, Thread>, // 見つけたスレッド（id → 名前と親）
     #[serde(default)]
     settings: Settings,
 }
@@ -229,7 +246,7 @@ fn in_tray(t: &TrayDef, m: &Msg) -> bool {
         "inbox-mix" => true,
         "inbox" => m.guild_id.is_some(),
         "inbox-dm" => m.guild_id.is_none(),
-        _ => t.favorites.contains_key(&m.channel_id) || m.guild_id.as_ref().is_some_and(|g| t.favorites.contains_key(g)),
+        _ => [Some(&m.channel_id), m.parent_id.as_ref(), m.guild_id.as_ref()].into_iter().flatten().any(|k| t.favorites.contains_key(k)),
     }
 }
 
@@ -299,7 +316,24 @@ fn to_msg(m: &Value, cid: &str, place: &str, guild_id: Option<String>, me_id: Op
         time: m["timestamp"].as_str().filter(|x| !x.is_empty()).map_or_else(iso_now, String::from),
         read: false,
         mine: me_id.is_some() && a["id"].as_str() == me_id,
+        parent_id: None,
+        thread: None,
     })
+}
+
+// スレッドの発言なら親チャンネルとスレッド名を付ける
+fn with_thread(mut m: Msg, t: Option<&Thread>) -> Msg {
+    if let Some(t) = t {
+        m.parent_id = t.parent_id.clone();
+        m.thread = Some(t.name.clone());
+    }
+    m
+}
+
+// 発言がスレッドを作ったことを示していれば、そのスレッドの id（作成の知らせ = type 18、スレッドの最初の発言 = thread 付き）
+fn thread_from(m: &Value) -> Option<String> {
+    let id = if m["type"].as_i64() == Some(18) { &m["message_reference"]["channel_id"] } else { &m["thread"]["id"] };
+    id.as_str().map(String::from)
 }
 
 // 本文 + 取得できない内容の説明。RPC のメッセージにはスタンプの情報が無いので、空なら「取得できません」
@@ -705,13 +739,13 @@ impl Core {
     // MESSAGE_CREATE を購読する。受信（サーバー）がオンなら全サーバーの全テキストチャンネル、
     // 受信（DM）がオンなら既知の DM 全部。オフの側は ★ したサーバーのチャンネル・チャンネル・DM だけ
     async fn sync_subs(&self) {
-        let (all, favs, mut want, guild_ids) = {
+        let (all, favs, mut want, guild_ids, threads) = {
             let d = self.lock();
             let favs: HashSet<String> = d.saved.trays.iter().flat_map(|t| t.favorites.keys().cloned()).collect();
             let all = d.saved.settings.inbox_all || d.saved.settings.inbox_mix;
             let all_dm = d.saved.settings.inbox_dm || d.saved.settings.inbox_mix;
             let dms: HashSet<String> = d.saved.dms.keys().filter(|id| all_dm || favs.contains(*id)).cloned().collect();
-            (all, favs, dms, d.guilds.iter().map(|g| s(&g["id"])).collect::<Vec<_>>())
+            (all, favs, dms, d.guilds.iter().map(|g| s(&g["id"])).collect::<Vec<_>>(), d.saved.threads.clone())
         };
         for g in guild_ids {
             for c in self.load_channels(&g).await.unwrap_or_default() {
@@ -719,6 +753,12 @@ impl Core {
                 if all || favs.contains(&g) || favs.contains(&id) {
                     want.insert(id);
                 }
+            }
+        }
+        // スレッドは親チャンネル・サーバー・スレッド自体のどれかが対象なら
+        for (id, t) in threads {
+            if all || favs.contains(&t.guild_id) || favs.contains(&id) || t.parent_id.as_ref().is_some_and(|p| favs.contains(p)) {
+                want.insert(id);
             }
         }
         for id in &want {
@@ -744,6 +784,9 @@ impl Core {
         match evt {
             "READY" => self.start().await,
             "MESSAGE_CREATE" => {
+                if let Some(tid) = thread_from(&data["message"]) {
+                    self.find_thread(&tid, Some(cid.clone())).await;
+                }
                 let (place, gid) = self.place(&cid);
                 self.add_message(&cid, place, gid, &data["message"], true);
             }
@@ -751,8 +794,15 @@ impl Core {
                 if self.lock().subs.contains(&cid) {
                     return;
                 }
+                let known = self.lock().saved.threads.contains_key(&cid);
+                let ch = if known { None } else { self.cmd("GET_CHANNEL", json!({ "channel_id": cid }), None).await.ok() };
+                // 購読していないスレッドの発言は通知でだけ分かる。覚えて購読に加える
+                if known || ch.as_ref().is_some_and(|c| self.remember_thread(&cid, c, None)) {
+                    let (place, gid) = self.place(&cid);
+                    self.add_message(&cid, place, gid, &data["message"], true);
+                    return;
+                }
                 // DM 一覧は RPC で取れないので、通知で届いた DM から一覧を作る
-                let ch = self.cmd("GET_CHANNEL", json!({ "channel_id": cid }), None).await.ok();
                 if ch.as_ref().is_some_and(|c| c["guild_id"].is_string()) {
                     return; // サーバーのメッセージは MESSAGE_CREATE で受け取る
                 }
@@ -783,8 +833,41 @@ impl Core {
         }
     }
 
+    // id がスレッドなら覚えて購読に加える（もう覚えていれば何もしない）。スレッドだったら true
+    async fn find_thread(self: &Arc<Self>, tid: &str, parent: Option<String>) -> bool {
+        if self.lock().saved.threads.contains_key(tid) {
+            return true;
+        }
+        let Ok(ch) = self.cmd("GET_CHANNEL", json!({ "channel_id": tid }), None).await else { return false };
+        self.remember_thread(tid, &ch, parent)
+    }
+
+    // GET_CHANNEL の結果 ch がスレッドなら覚えて購読に加える。スレッドだったら true
+    fn remember_thread(self: &Arc<Self>, tid: &str, ch: &Value, parent: Option<String>) -> bool {
+        if !ch["type"].as_i64().is_some_and(|t| THREAD_TYPES.contains(&t)) {
+            return false;
+        }
+        let t = Thread { name: s(&ch["name"]), guild_id: s(&ch["guild_id"]), parent_id: parent.or_else(|| ch["parent_id"].as_str().map(String::from)) };
+        self.log(&format!("スレッドを追加: {} (親 {:?})", t.name, t.parent_id));
+        {
+            let mut d = self.lock();
+            d.saved.threads.insert(tid.into(), t);
+            self.save(&d);
+        }
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move { me.sync_subs().await });
+        true
+    }
+
     fn place(&self, cid: &str) -> (String, Option<String>) {
         let d = self.lock();
+        if let Some(t) = d.saved.threads.get(cid) {
+            let head = match t.parent_id.as_ref().and_then(|p| d.chan_info.get(p)) {
+                Some(c) => format!("{} #{}", c.guild_name, c.name),
+                None => d.guilds.iter().find(|g| g["id"] == t.guild_id.as_str()).map(|g| s(&g["name"])).unwrap_or_default(),
+            };
+            return (format!("{head} › {}", t.name), Some(t.guild_id.clone()));
+        }
         match (d.chan_info.get(cid), d.saved.dms.get(cid)) {
             (Some(c), _) => (format!("{} #{}", c.guild_name, c.name), Some(c.guild_id.clone())),
             (None, Some(dm)) => (format!("DM {}", dm.name), None),
@@ -794,7 +877,7 @@ impl Core {
 
     // 起動していなかった間のメッセージを取り込む。保存済みで一番新しいメッセージより後のものだけ（ID は時刻順）。
     // トーストは出さず、音はタブの並びで先にあるトレイのものを 1 回だけ鳴らす
-    async fn catch_up(&self) {
+    async fn catch_up(self: &Arc<Self>) {
         let (since, ids) = {
             let d = self.lock();
             let since = d.saved.messages.iter().filter_map(|m| m.id.parse::<u64>().ok()).max();
@@ -820,8 +903,10 @@ impl Core {
         };
         let Some(since) = since else { return }; // 初回は過去の発言を拾わない
         let mut best: Option<(usize, String)> = None;
-        let (total, mut added, mut skipped) = (ids.len(), 0, 0);
-        for cid in ids {
+        let (mut ids, mut added, mut skipped, mut i) = (ids, 0, 0, 0);
+        while i < ids.len() {
+            let cid = ids[i].clone();
+            i += 1;
             // 起動後にリアルタイムで受信済みのチャンネルは取り込まなくてよい
             if self.lock().saved.messages.iter().any(|m| m.channel_id == cid && m.id.parse::<u64>().unwrap_or(0) > since) {
                 skipped += 1;
@@ -840,6 +925,12 @@ impl Core {
             let num = |m: &Value| s(&m["id"]).parse::<u64>().unwrap_or(0);
             let mut new: Vec<&Value> = ch["messages"].as_array().into_iter().flatten().filter(|m| num(m) > since).collect();
             new.sort_by_key(|m| num(m));
+            // 止まっていた間に作られたスレッドも覚えて取り込む
+            for tid in new.iter().filter_map(|m| thread_from(m)) {
+                if !self.lock().saved.threads.contains_key(&tid) && self.find_thread(&tid, Some(cid.clone())).await {
+                    ids.push(tid);
+                }
+            }
             let Some(m) = new.pop() else { continue };
             let (place, gid) = self.place(&cid);
             {
@@ -847,7 +938,8 @@ impl Core {
                 let mut d = self.lock();
                 let (me_id, n) = (d.me.as_ref().map(|x| s(&x["id"])), d.saved.settings.history as usize);
                 let mut changed = false;
-                for x in new.iter().filter_map(|x| to_msg(x, &cid, &place, gid.clone(), me_id.as_deref())) {
+                let th = d.saved.threads.get(&cid).cloned();
+                for x in new.iter().filter_map(|x| to_msg(x, &cid, &place, gid.clone(), me_id.as_deref())).map(|x| with_thread(x, th.as_ref())) {
                     if receives(&d.saved, &x) {
                         changed |= push_history(&mut d.saved.history, &x, n);
                     }
@@ -863,7 +955,7 @@ impl Core {
                 }
             }
         }
-        self.log(&format!("取り込み: {total} チャンネル中 新着 {added} 件、受信済みで省略 {skipped} 件"));
+        self.log(&format!("取り込み: {} チャンネル中 新着 {added} 件、受信済みで省略 {skipped} 件", ids.len()));
         self.notify(String::new(), String::new(), false, best.map(|b| b.1));
     }
 
@@ -872,7 +964,7 @@ impl Core {
         let (title, body, toast, sound) = {
             let mut d = self.lock();
             let me_id = d.me.as_ref().map(|x| s(&x["id"]));
-            let mut item = to_msg(m, cid, &place, guild_id, me_id.as_deref())?;
+            let mut item = with_thread(to_msg(m, cid, &place, guild_id, me_id.as_deref())?, d.saved.threads.get(cid));
             if !receives(&d.saved, &item) {
                 return None;
             }
@@ -952,7 +1044,24 @@ fn get(c: S) -> Value {
 
 #[tauri::command]
 fn history(c: S, channel_id: String) -> Vec<Msg> {
-    c.lock().saved.history.get(&channel_id).cloned().unwrap_or_default()
+    merged_history(&c.lock().saved, &channel_id)
+}
+
+// スレッドをまとめる設定なら、親チャンネルとそのスレッドの履歴を合わせた新しい n 件を古い順に
+fn merged_history(saved: &Saved, cid: &str) -> Vec<Msg> {
+    if !saved.settings.merge_threads {
+        return saved.history.get(cid).cloned().unwrap_or_default();
+    }
+    let root = saved.threads.get(cid).and_then(|t| t.parent_id.as_deref()).unwrap_or(cid);
+    let mut v: Vec<Msg> = saved
+        .history
+        .iter()
+        .filter(|(k, _)| *k == root || saved.threads.get(*k).is_some_and(|t| t.parent_id.as_deref() == Some(root)))
+        .flat_map(|(_, l)| l.iter().cloned())
+        .collect();
+    v.sort_by_key(|m| m.id.parse::<u64>().unwrap_or(0));
+    v.drain(..v.len().saturating_sub(saved.settings.history as usize));
+    v
 }
 
 #[tauri::command]
@@ -971,6 +1080,8 @@ fn set_fav(c: S, tray_id: String, id: String, fav: bool) {
             Some(Fav { kind: "guild".into(), name: s(&x["name"]) })
         } else if let Some(ci) = d.chan_info.get(&id) {
             Some(Fav { kind: "channel".into(), name: format!("{} #{}", ci.guild_name, ci.name) })
+        } else if let Some(th) = d.saved.threads.get(&id) {
+            Some(Fav { kind: "channel".into(), name: th.name.clone() })
         } else {
             d.saved.dms.get(&id).map(|dm| Fav { kind: "dm".into(), name: dm.name.clone() })
         };
@@ -1070,7 +1181,7 @@ fn mark_read(c: S, id: String, read: bool) {
 fn mark_read_in(c: S, id: String) {
     {
         let mut d = c.lock();
-        for m in d.saved.messages.iter_mut().filter(|m| m.channel_id == id || m.guild_id.as_deref() == Some(&id)) {
+        for m in d.saved.messages.iter_mut().filter(|m| [Some(&m.channel_id), m.parent_id.as_ref(), m.guild_id.as_ref()].contains(&Some(&id))) {
             m.read = true;
         }
         c.save(&d);
@@ -1097,8 +1208,15 @@ fn remove_dm(c: S, id: String) {
 // Discord アプリで開く。開けるのは discord:// のチャンネルのリンクだけ
 #[tauri::command]
 fn open_url(c: S, url: String) {
+    // 本文中の Discord のメッセージリンクはアプリで開く
+    let url = ["https://discord.com/channels/", "https://ptb.discord.com/channels/", "https://canary.discord.com/channels/"]
+        .iter()
+        .find_map(|p| url.strip_prefix(p))
+        .map_or(url.clone(), |rest| format!("discord://-/channels/{rest}"));
     if url.starts_with("discord://-/channels/") {
         open_discord(&c.app, url);
+    } else if url.starts_with("https://") || url.starts_with("http://") {
+        let _ = c.app.opener().open_url(url, None::<&str>);
     }
 }
 
@@ -1165,6 +1283,9 @@ fn set_settings(c: S, patch: Value) {
                 l.drain(..l.len().saturating_sub(n as usize));
             }
             d.saved.history.retain(|_, l| !l.is_empty());
+        }
+        if let Some(b) = patch["mergeThreads"].as_bool() {
+            d.saved.settings.merge_threads = b;
         }
         if let Some(b) = patch["trayBadge"].as_bool() {
             d.saved.settings.tray_badge = b;
@@ -1581,7 +1702,7 @@ mod tests {
     #[test]
     fn mix_dm_only() {
         let tray = |id: &str| TrayDef { id: id.into(), name: String::new(), favorites: IndexMap::new(), notify: default_notify() };
-        let msg = |g: Option<&str>| Msg { id: "1".into(), channel_id: "c".into(), guild_id: g.map(String::from), r#where: String::new(), author: String::new(), avatar: None, content: String::new(), time: String::new(), read: false, mine: false };
+        let msg = |g: Option<&str>| Msg { id: "1".into(), channel_id: "c".into(), guild_id: g.map(String::from), r#where: String::new(), author: String::new(), avatar: None, content: String::new(), time: String::new(), read: false, mine: false, parent_id: None, thread: None };
         let (mix, server, dm) = (tray("inbox-mix"), tray("inbox"), msg(None));
         let in_guild = msg(Some("g"));
         let mut s = Settings { inbox_mix: true, inbox_all: true, ..Default::default() };
@@ -1593,6 +1714,31 @@ mod tests {
         // まとめた受信トレイを使っていなければ DM でも通知しない
         s.inbox_mix = false;
         assert!(!tray_notifies(&s, &mix, &dm));
+    }
+
+    #[test]
+    fn threads_merge_and_favorite() {
+        let m = |id: &str, cid: &str| to_msg(&json!({ "id": id, "author": { "username": "a" } }), cid, "p", Some("g".into()), None).unwrap();
+        let th = Thread { name: "t".into(), guild_id: "g".into(), parent_id: Some("p1".into()) };
+        let mut saved = Saved::default();
+        saved.threads.insert("t1".into(), th.clone());
+        saved.settings.history = 3;
+        for (id, cid) in [("1", "p1"), ("2", "t1"), ("3", "p1"), ("4", "t1"), ("5", "other")] {
+            push_history(&mut saved.history, &with_thread(m(id, cid), saved.threads.get(cid)), 3);
+        }
+        let ids = |v: Vec<Msg>| v.into_iter().map(|x| x.id).collect::<Vec<_>>();
+        assert_eq!(ids(merged_history(&saved, "t1")), ["2", "4"]);
+        saved.settings.merge_threads = true;
+        assert_eq!(ids(merged_history(&saved, "t1")), ["2", "3", "4"]);
+        assert_eq!(ids(merged_history(&saved, "p1")), ["2", "3", "4"]);
+        // 親チャンネルの ★ でスレッドの発言もトレイに入る
+        let mut tray = TrayDef { id: "x".into(), name: String::new(), favorites: IndexMap::new(), notify: default_notify() };
+        tray.favorites.insert("p1".into(), Fav { kind: "channel".into(), name: String::new() });
+        assert!(in_tray(&tray, &with_thread(m("6", "t1"), Some(&th))));
+        assert!(!in_tray(&tray, &m("7", "other")));
+        assert_eq!(thread_from(&json!({ "type": 18, "message_reference": { "channel_id": "t9" } })).as_deref(), Some("t9"));
+        assert_eq!(thread_from(&json!({ "type": 0, "thread": { "id": "t8" } })).as_deref(), Some("t8"));
+        assert_eq!(thread_from(&json!({ "type": 0 })), None);
     }
 
     #[test]
